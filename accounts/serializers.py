@@ -28,6 +28,27 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         send_verification_otp(user.email, otp)            # send plain OTP
         return user
+    
+    def create(self, validated_data):
+            
+        from profiles.models import Profile
+        from accounts.utils import generate_otp, hash_token, get_otp_expiry
+        from accounts.email_service import send_verification_otp
+
+        otp = generate_otp()
+
+        user = User(email=validated_data['email'])
+        user.set_password(validated_data['password'])
+        user.email_verification_token = hash_token(otp)
+        user.password_reset_expires = get_otp_expiry()
+        user.is_email_verified = False
+        user.save()
+
+        # Auto-create profile
+        Profile.objects.create(user=user)
+
+        send_verification_otp(user.email, otp)
+        return user
 
 
 class VerifyEmailSerializer(serializers.Serializer):

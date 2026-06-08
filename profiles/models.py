@@ -26,3 +26,6 @@ class Profile(models.Model):
     class Meta:
         managed = False
         db_table = 'profiles'
+    
+    def __str__(self):
+        return f'{self.user.email} — profile'

@@ -36,7 +36,9 @@ Abia-Stream-Backend/
 │   └── routers.py         # Supabase migration router
 ├── profiles/
 │   ├── models.py          # Profile model (managed=False)
-│   └── ...
+│   ├── serializers.py
+│   ├── views.py
+│   └── urls.py
 ├── .env
 ├── manage.py
 └── requirements.txt
@@ -108,7 +110,7 @@ DEFAULT_FROM_EMAIL=Abia Stream <yourgmail@gmail.com>
 python manage.py migrate
 ```
 
-> The custom `SupabaseRouter` prevents Django from creating `auth_*` and `django_content_type` tables in your Supabase database. Only Django's internal migration tracking tables are created.
+> The `SupabaseRouter` in `accounts/routers.py` blocks Django from creating `auth_*` and `django_content_type` tables in Supabase. Only migration tracking and token blacklist tables are created.
 
 ### 6. Start the development server
 
@@ -150,9 +152,8 @@ Server runs at `http://127.0.0.1:8000`
 | `POST` | `/api/auth/verify-email/` | Verify email with OTP | Public |
 | `POST` | `/api/auth/resend-otp/` | Resend verification OTP | Public |
 | `POST` | `/api/auth/login/` | Login and get tokens | Public |
-| `POST` | `/api/auth/token/refresh/` | Refresh access token | Public |
 | `POST` | `/api/auth/logout/` | Logout and blacklist token | 🔒 |
-
+| `POST` | `/api/auth/token/refresh/` | Refresh access token | Public |
 
 ### Password Reset
 
@@ -162,6 +163,14 @@ Server runs at `http://127.0.0.1:8000`
 | `POST` | `/api/auth/verify-reset-otp/` | Verify reset OTP | Public |
 | `POST` | `/api/auth/reset-password/` | Set new password | Public |
 
+### Profiles
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `GET` | `/api/profile/me/` | Get own profile | 🔒 |
+| `PATCH` | `/api/profile/me/` | Update own profile | 🔒 |
+| `GET` | `/api/profile/<user_id>/` | View any public profile | Public |
+
 > Full request/response details are in [API_DOCUMENTATION.md](./API_DOCUMENTATION.md)
 
 ---
@@ -170,6 +179,7 @@ Server runs at `http://127.0.0.1:8000`
 
 ```
 1. POST /api/auth/register/         → account created (status: pending_verification)
+                                       profile row auto-created
 2. POST /api/auth/verify-email/     → status promoted to active
 3. POST /api/auth/login/            → returns access + refresh tokens
 4. POST /api/auth/token/refresh/    → returns new access token (every 30 mins)
@@ -177,8 +187,6 @@ Server runs at `http://127.0.0.1:8000`
 ```
 
 ### Using the Access Token
-
-Include it in the `Authorization` header for all protected endpoints:
 
 ```
 Authorization: Bearer <access_token>
@@ -223,6 +231,7 @@ Authorization: Bearer <access_token>
 - Account lockout after **5 failed login attempts** (locked for 15 minutes)
 - Refresh token blacklisting on logout
 - Email enumeration protection on resend OTP and forgot password endpoints
+- Never expose JWT tokens — use Postman environment variables
 
 ---
 
@@ -230,7 +239,7 @@ Authorization: Bearer <access_token>
 
 ### Testing emails locally
 
-In development (`DEBUG=True`), emails are printed to the terminal instead of being sent:
+In development (`DEBUG=True`), emails print to the terminal instead of being sent:
 
 ```python
 # settings.py
@@ -238,14 +247,13 @@ if DEBUG:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 ```
 
-The OTP will appear in your terminal output after calling `/api/auth/register/` or `/api/auth/resend-otp/`.
+The OTP appears in your terminal output after calling `/api/auth/register/` or `/api/auth/resend-otp/`.
 
 ### Supabase migration router
 
 The `SupabaseRouter` in `accounts/routers.py` blocks Django from running migrations for `auth`, `contenttypes`, `admin`, and `sessions` apps — keeping your Supabase schema clean.
 
 ```python
-# accounts/routers.py
 BLOCKED_APPS = {'admin', 'contenttypes', 'auth', 'sessions'}
 
 class SupabaseRouter:
@@ -257,28 +265,27 @@ class SupabaseRouter:
 
 ### `managed = False`
 
-All models mapping to existing Supabase tables use `managed = False` in their `Meta` class — Django reads and writes to these tables but never creates, alters, or drops them.
+All models mapping to existing Supabase tables use `managed = False` — Django reads and writes to these tables but never creates, alters, or drops them.
 
 ---
 
 ## API Documentation
 
-Interactive API docs are available at:
+Interactive API docs (powered by drf-spectacular):
 
 | Interface | URL |
 |-----------|-----|
-| Swagger UI | `http://127.0.0.1:8000/api/schema/swagger-ui/` |
-| ReDoc | `http://127.0.0.1:8000/api/schema/redoc/` |
-| OpenAPI Schema | `http://127.0.0.1:8000/api/schema/` |
+| Swagger UI | `http://127.0.0.1:8000/api/docs/ui` |
+| OpenAPI Schema | `http://127.0.0.1:8000/api/docs/schema/` |
 
 ---
 
 ## Postman Setup
 
-1. Create a new environment called `Abia Stream - Dev`
-2. Add variable `base_url` = `http://127.0.0.1:8000/api`
-3. Add variables `access_token` and `refresh_token` (leave empty)
-4. In the Login request **Tests** tab, add:
+1. Create environment: `Abia-Stream-Dev`
+2. Add variable: `base_url` = `http://127.0.0.1:8000/api`
+3. Add variables: `access_token` and `refresh_token` (leave empty)
+4. In Login request **Scripts → Post-response**:
 
 ```javascript
 if (pm.response.code === 200) {
@@ -288,8 +295,8 @@ if (pm.response.code === 200) {
 }
 ```
 
-5. Use `{{base_url}}/auth/login/` for all request URLs
-6. Use `{{access_token}}` in the Bearer Token field for protected requests
+5. All request URLs: `{{base_url}}/auth/login/`
+6. Protected requests → Authorization → Bearer Token → `{{access_token}}`
 
 ---
 
