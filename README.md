@@ -150,8 +150,9 @@ Server runs at `http://127.0.0.1:8000`
 | `POST` | `/api/auth/verify-email/` | Verify email with OTP | Public |
 | `POST` | `/api/auth/resend-otp/` | Resend verification OTP | Public |
 | `POST` | `/api/auth/login/` | Login and get tokens | Public |
-| `POST` | `/api/auth/logout/` | Logout and blacklist token | 🔒 |
 | `POST` | `/api/auth/token/refresh/` | Refresh access token | Public |
+| `POST` | `/api/auth/logout/` | Logout and blacklist token | 🔒 |
+
 
 ### Password Reset
 
