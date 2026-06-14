@@ -1,7 +1,7 @@
 # Abia Stream API Documentation
 
 **Version:** 1.0.0  
-**Base URL:** `http://127.0.0.1:8000/api` (development) · `https://api.abiastream.com/api` (production)  
+**Base URL:** `http://127.0.0.1:8000/api` (development) · `https://abia-stream-backend.onrender.com/api/` (production)  
 **Authentication:** Bearer JWT Token
 
 ---
