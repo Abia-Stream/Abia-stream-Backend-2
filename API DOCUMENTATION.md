@@ -996,7 +996,7 @@ Video Publishing:
 ## Postman Quick Setup
 
 1. Environment: `Abia-Stream-Dev`
-2. Variable: `base_url` = `http://127.0.0.1:8000/api`
+2. Variable: `base_url` = `https://abia-stream-backend.onrender.com/api/`
 3. Login **Scripts → Post-response**:
 
 ```javascript
