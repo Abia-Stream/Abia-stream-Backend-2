@@ -85,3 +85,9 @@ class LoginSerializer(serializers.Serializer):
 
 class TokenRefreshSerializer(serializers.Serializer):
     refresh = serializers.CharField()
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'role', 'status', 'is_email_verified', 'created_at']
+        read_only_fields = ['id', 'created_at']

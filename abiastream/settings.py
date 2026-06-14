@@ -34,10 +34,13 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
+     'cloudinary',
 
     # Third party apps
     'accounts',
     'profiles',
+    'videos',
+
 ]
 
 MIDDLEWARE = [
@@ -179,3 +182,17 @@ else:
     DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL')
 
 OTP_EXPIRY_MINUTES = 10
+
+# settings.py
+import cloudinary
+
+CLOUDINARY_CLOUD_NAME = config('CLOUDINARY_CLOUD_NAME')
+CLOUDINARY_API_KEY = config('CLOUDINARY_API_KEY')
+CLOUDINARY_API_SECRET = config('CLOUDINARY_API_SECRET')
+
+cloudinary.config(
+    cloud_name=CLOUDINARY_CLOUD_NAME,
+    api_key=CLOUDINARY_API_KEY,
+    api_secret=CLOUDINARY_API_SECRET,
+    secure=True
+)

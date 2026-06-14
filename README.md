@@ -39,6 +39,12 @@ Abia-Stream-Backend/
 │   ├── serializers.py
 │   ├── views.py
 │   └── urls.py
+├── videos/
+│   ├── models.py          # Video, Category, Tag, VideoTag (managed=False)
+│   ├── serializers.py
+│   ├── views.py
+│   ├── urls.py
+│   └── cloudinary_service.py  # Cloudinary upload, thumbnail, signing
 ├── .env
 ├── manage.py
 └── requirements.txt
@@ -50,6 +56,7 @@ Abia-Stream-Backend/
 
 - Python 3.10+
 - A [Supabase](https://supabase.com) project with the schema already created
+- A [Cloudinary](https://cloudinary.com) account with API keys
 - A Gmail account with an [App Password](https://myaccount.google.com/apppasswords) (for email)
 
 ---
@@ -102,6 +109,11 @@ EMAIL_PORT=587
 EMAIL_HOST_USER=yourgmail@gmail.com
 EMAIL_HOST_PASSWORD=your-16-char-app-password
 DEFAULT_FROM_EMAIL=Abia Stream <yourgmail@gmail.com>
+
+# Cloudinary
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
 ```
 
 ### 5. Run migrations
@@ -110,9 +122,13 @@ DEFAULT_FROM_EMAIL=Abia Stream <yourgmail@gmail.com>
 python manage.py migrate
 ```
 
-> The `SupabaseRouter` in `accounts/routers.py` blocks Django from creating `auth_*` and `django_content_type` tables in Supabase. Only migration tracking and token blacklist tables are created.
+### 6. Create a superuser (admin account)
 
-### 6. Start the development server
+```bash
+python manage.py createsuperuser
+```
+
+### 7. Start the development server
 
 ```bash
 python manage.py runserver
@@ -127,7 +143,7 @@ Server runs at `http://127.0.0.1:8000`
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `SECRET_KEY` | Django secret key | ✅ |
-| `DEBUG` | `True` for development, `False` for production | ✅ |
+| `DEBUG` | `True` for dev, `False` for production | ✅ |
 | `ALLOWED_HOSTS` | Comma-separated list of allowed hosts | ✅ |
 | `DB_NAME` | Supabase database name | ✅ |
 | `DB_USER` | Supabase database user | ✅ |
@@ -136,9 +152,12 @@ Server runs at `http://127.0.0.1:8000`
 | `DB_PORT` | Supabase database port (default: 5432) | ✅ |
 | `EMAIL_HOST` | SMTP host | ✅ |
 | `EMAIL_PORT` | SMTP port (default: 587) | ✅ |
-| `EMAIL_HOST_USER` | SMTP username / email address | ✅ |
-| `EMAIL_HOST_PASSWORD` | SMTP password or app password | ✅ |
+| `EMAIL_HOST_USER` | SMTP email address | ✅ |
+| `EMAIL_HOST_PASSWORD` | SMTP app password | ✅ |
 | `DEFAULT_FROM_EMAIL` | Sender name and email | ✅ |
+| `CLOUDINARY_CLOUD_NAME` | Cloudinary cloud name | ✅ |
+| `CLOUDINARY_API_KEY` | Cloudinary API key | ✅ |
+| `CLOUDINARY_API_SECRET` | Cloudinary API secret | ✅ |
 
 ---
 
@@ -148,18 +167,18 @@ Server runs at `http://127.0.0.1:8000`
 
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| `POST` | `/api/auth/register/` | Register a new user | Public |
-| `POST` | `/api/auth/verify-email/` | Verify email with OTP | Public |
+| `POST` | `/api/auth/register/` | Register new user | Public |
+| `POST` | `/api/auth/verify-email/` | Verify email OTP | Public |
 | `POST` | `/api/auth/resend-otp/` | Resend verification OTP | Public |
-| `POST` | `/api/auth/login/` | Login and get tokens | Public |
-| `POST` | `/api/auth/logout/` | Logout and blacklist token | 🔒 |
+| `POST` | `/api/auth/login/` | Login, get tokens | Public |
+| `POST` | `/api/auth/logout/` | Logout, blacklist token | 🔒 |
 | `POST` | `/api/auth/token/refresh/` | Refresh access token | Public |
 
 ### Password Reset
 
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| `POST` | `/api/auth/forgot-password/` | Request password reset OTP | Public |
+| `POST` | `/api/auth/forgot-password/` | Request reset OTP | Public |
 | `POST` | `/api/auth/verify-reset-otp/` | Verify reset OTP | Public |
 | `POST` | `/api/auth/reset-password/` | Set new password | Public |
 
@@ -169,55 +188,86 @@ Server runs at `http://127.0.0.1:8000`
 |--------|----------|-------------|------|
 | `GET` | `/api/profile/me/` | Get own profile | 🔒 |
 | `PATCH` | `/api/profile/me/` | Update own profile | 🔒 |
-| `GET` | `/api/profile/<user_id>/` | View any public profile | Public |
+| `GET` | `/api/profile/<user_id>/` | View public profile | Public |
 
-> Full request/response details are in [API_DOCUMENTATION.md](./API_DOCUMENTATION.md)
+### Videos
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `POST` | `/api/videos/upload/` | Server-side upload | 🔒 creator/admin |
+| `GET` | `/api/videos/upload/signed-params/` | Client-side upload credentials | 🔒 creator/admin |
+| `POST` | `/api/videos/upload/from-cloudinary/` | Save after client upload | 🔒 creator/admin |
+| `GET` | `/api/videos/` | List public videos | Public |
+| `GET` | `/api/videos/?category=1` | Filter by category | Public |
+| `GET` | `/api/videos/?tag=1` | Filter by tag | Public |
+| `GET` | `/api/videos/?creator=<uuid>` | Filter by creator | Public |
+| `GET` | `/api/videos/me/` | My videos | 🔒 |
+| `GET` | `/api/videos/me/?status=draft` | My drafts | 🔒 |
+| `GET` | `/api/videos/<id>/` | Get single video | Public* |
+| `PATCH` | `/api/videos/<id>/` | Update video | 🔒 Owner |
+| `DELETE` | `/api/videos/<id>/` | Delete video | 🔒 Owner |
+| `POST` | `/api/videos/<id>/publish/` | Publish video | 🔒 creator/admin |
+| `POST` | `/api/videos/<id>/archive/` | Archive video | 🔒 creator/admin |
+
+### Categories & Tags
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `GET` | `/api/categories/` | List active categories | Public |
+| `GET` | `/api/tags/` | List tags by usage | Public |
+
+> *Visibility rules apply for single video endpoint
+
+> Full request/response details in [API_DOCUMENTATION.md](./API_DOCUMENTATION.md)
 
 ---
 
-## Authentication Flow
+## Video Upload Flows
 
+### Server-side (development / admin)
 ```
-1. POST /api/auth/register/         → account created (status: pending_verification)
-                                       profile row auto-created
-2. POST /api/auth/verify-email/     → status promoted to active
-3. POST /api/auth/login/            → returns access + refresh tokens
-4. POST /api/auth/token/refresh/    → returns new access token (every 30 mins)
-5. POST /api/auth/logout/           → blacklists refresh token
+POST /api/videos/upload/
+  File goes: Browser → Django → Cloudinary → Supabase DB
 ```
 
-### Using the Access Token
-
+### Client-side (production / frontend)
 ```
-Authorization: Bearer <access_token>
+1. GET  /api/videos/upload/signed-params/   → credentials
+2. Frontend uploads directly to Cloudinary
+3. POST /api/videos/upload/from-cloudinary/ → save metadata
+  File goes: Browser → Cloudinary directly (Django not involved)
 ```
-
-### Token Lifetimes
-
-| Token | Lifetime |
-|-------|----------|
-| Access Token | 30 minutes |
-| Refresh Token | 7 days |
 
 ---
 
-## User Roles & Statuses
+## Video Status Flow
 
-### Roles (`user_role`)
+```
+Upload → processing → ready → published
+                   ↘ failed
+published → archived
+any → blocked (admin only)
+```
 
-| Value | Description |
-|-------|-------------|
-| `viewer` | Default role for new users |
-| `creator` | Can upload and manage videos |
-| `moderator` | Can manage content |
-| `admin` | Full access |
+---
 
-### Statuses (`user_status`)
+## User Roles & Permissions
 
-| Value | Description |
-|-------|-------------|
-| `pending_verification` | Registered but email not verified |
-| `active` | Verified and can log in |
+| Role | Upload | Publish | Watch | Moderate | Admin |
+|------|--------|---------|-------|----------|-------|
+| `viewer` | ❌ | ❌ | ✅ | ❌ | ❌ |
+| `creator` | ✅ | ✅ own | ✅ | ❌ | ❌ |
+| `moderator` | ❌ | ❌ | ✅ | ✅ | ❌ |
+| `admin` | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+---
+
+## User Statuses
+
+| Status | Description |
+|--------|-------------|
+| `pending_verification` | Registered, email not verified |
+| `active` | Verified, can log in |
 | `suspended` | Temporarily restricted |
 | `banned` | Permanently restricted |
 
@@ -226,12 +276,14 @@ Authorization: Bearer <access_token>
 ## Security Features
 
 - Passwords hashed with Django's PBKDF2 algorithm
-- OTPs hashed with SHA-256 before storing in the database
+- OTPs hashed with SHA-256 before storing
 - OTPs expire after **10 minutes**
-- Account lockout after **5 failed login attempts** (locked for 15 minutes)
+- Account lockout after **5 failed login attempts** (15 minutes)
 - Refresh token blacklisting on logout
-- Email enumeration protection on resend OTP and forgot password endpoints
-- Never expose JWT tokens — use Postman environment variables
+- Email enumeration protection
+- Cloudinary signed uploads (tamper-proof)
+- Role-based upload restrictions
+- Private/subscribers_only video access control
 
 ---
 
@@ -239,21 +291,37 @@ Authorization: Bearer <access_token>
 
 ### Testing emails locally
 
-In development (`DEBUG=True`), emails print to the terminal instead of being sent:
-
 ```python
-# settings.py
+# settings.py — emails print to terminal in DEBUG mode
 if DEBUG:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 ```
 
-The OTP appears in your terminal output after calling `/api/auth/register/` or `/api/auth/resend-otp/`.
+### Creating test accounts by role
+
+Register via API then update role in Supabase SQL Editor:
+
+```sql
+UPDATE users SET role = 'creator' WHERE email = 'testcreator@example.com';
+UPDATE users SET role = 'moderator' WHERE email = 'testmoderator@example.com';
+```
+
+### Video processing in development
+
+After upload, videos start with status `processing`. Cloudinary processes them asynchronously. For testing, manually set to `ready` in Supabase:
+
+```sql
+UPDATE videos SET status = 'ready' WHERE id = 'your-video-uuid';
+```
+
+In production, a Cloudinary webhook will automatically update the status (Phase 4 — Celery).
 
 ### Supabase migration router
 
-The `SupabaseRouter` in `accounts/routers.py` blocks Django from running migrations for `auth`, `contenttypes`, `admin`, and `sessions` apps — keeping your Supabase schema clean.
+Blocks Django from creating `auth_*` and internal tables in Supabase:
 
 ```python
+# accounts/routers.py
 BLOCKED_APPS = {'admin', 'contenttypes', 'auth', 'sessions'}
 
 class SupabaseRouter:
@@ -265,13 +333,11 @@ class SupabaseRouter:
 
 ### `managed = False`
 
-All models mapping to existing Supabase tables use `managed = False` — Django reads and writes to these tables but never creates, alters, or drops them.
+All models use `managed = False` — Django reads/writes but never creates or alters tables.
 
 ---
 
 ## API Documentation
-
-Interactive API docs (powered by drf-spectacular):
 
 | Interface | URL |
 |-----------|-----|
@@ -282,10 +348,9 @@ Interactive API docs (powered by drf-spectacular):
 
 ## Postman Setup
 
-1. Create environment: `Abia-Stream-Dev`
-2. Add variable: `base_url` = `http://127.0.0.1:8000/api`
-3. Add variables: `access_token` and `refresh_token` (leave empty)
-4. In Login request **Scripts → Post-response**:
+1. Environment: `Abia-Stream-Dev`
+2. Variables: `base_url` = `http://127.0.0.1:8000/api`
+3. Login **Scripts → Post-response**:
 
 ```javascript
 if (pm.response.code === 200) {
@@ -295,8 +360,27 @@ if (pm.response.code === 200) {
 }
 ```
 
-5. All request URLs: `{{base_url}}/auth/login/`
-6. Protected requests → Authorization → Bearer Token → `{{access_token}}`
+4. Protected requests → Authorization → Bearer Token → `{{access_token}}`
+5. Video upload → Body → **form-data**, `video_file` key type = **File**
+
+---
+
+## Roadmap
+
+- [x] Phase 1 — Auth Service (register, login, OTP, password reset)
+- [x] Phase 1 — Profile Service (CRUD)
+- [x] Phase 1 — Content Service (video upload, CRUD, categories, tags)
+- [ ] Phase 1 — Playback Service (watch history, view logs)
+- [ ] Phase 2 — Interactions (likes, saves, shares)
+- [ ] Phase 2 — Creator Channels
+- [ ] Phase 2 — Subscriptions
+- [ ] Phase 2 — Notifications
+- [ ] Phase 3 — Livestreams
+- [ ] Phase 4 — Redis Cache
+- [ ] Phase 4 — Search Service
+- [ ] Phase 4 — Analytics
+- [ ] Phase 4 — Cloudinary Webhooks (auto status update)
+- [ ] Phase 5 — Docker + CI/CD + Production deployment
 
 ---
 

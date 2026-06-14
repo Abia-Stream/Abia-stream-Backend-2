@@ -4,7 +4,7 @@ from django.db import models
 
 
 class UserManager(BaseUserManager):
-    def get_by_natural_key(self, email):
+    def get_by_natural_key(self, email):        
         return self.get(email=email)
 
     def create_user(self, email, password=None, **extra_fields):
@@ -18,6 +18,8 @@ class UserManager(BaseUserManager):
 
     def create_superuser(self, email, password=None, **extra_fields):
         extra_fields.setdefault('role', 'admin')
+        extra_fields.setdefault('status', 'active')
+        extra_fields.setdefault('is_email_verified', True)
         return self.create_user(email, password, **extra_fields)
 
 
@@ -52,6 +54,9 @@ class User(AbstractBaseUser):
     # Required by AbstractBaseUser
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []
+    
+    
+    objects = UserManager()
 
     # Required by PermissionsMixin — but we have no is_staff column,
     # so make it a property

@@ -4,8 +4,8 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.contrib.auth import get_user_model
 from django.utils import timezone
-
-from accounts.serializers import RegisterSerializer, VerifyEmailSerializer, ResendOTPSerializer, VerifyPasswordResetOTPSerializer,ForgotPasswordSerializer, ResetPasswordSerializer, LoginSerializer, TokenRefreshSerializer 
+from django.shortcuts import get_object_or_404
+from accounts.serializers import RegisterSerializer, VerifyEmailSerializer, ResendOTPSerializer, VerifyPasswordResetOTPSerializer,ForgotPasswordSerializer, ResetPasswordSerializer, LoginSerializer, TokenRefreshSerializer, UserSerializer  
 from accounts.utils import generate_otp, hash_token, get_otp_expiry
 from accounts.email_service import send_verification_otp, send_password_reset_otp
 from django.conf import settings
@@ -309,3 +309,37 @@ class LogoutView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+
+# accounts/views.py
+
+class AdminUserListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role != 'admin':
+            return Response(
+                {'detail': 'Admin access required.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        users = User.objects.all().order_by('-created_at')
+        serializer = UserSerializer(users, many=True)
+        return Response(serializer.data)
+
+
+class AdminUpdateUserView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, user_id):
+        if request.user.role != 'admin':
+            return Response(
+                {'detail': 'Admin access required.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        user = get_object_or_404(User, id=user_id)
+        # Allow admin to change role and status
+        allowed_fields = ['role', 'status', 'is_email_verified']
+        data = {k: v for k, v in request.data.items() if k in allowed_fields}
+        for field, value in data.items():
+            setattr(user, field, value)
+        user.save()
+        return Response({'detail': 'User updated successfully.'})
