@@ -1,7 +1,7 @@
 from django.urls import path
 from accounts.views import (
     RegisterView, VerifyEmailView, ResendOTPView,
-    ForgotPasswordView, VerifyPasswordResetOTPView, ResetPasswordView, LoginView, TokenRefreshView, LogoutView
+    ForgotPasswordView, VerifyPasswordResetOTPView, ResetPasswordView, LoginView, TokenRefreshView, LogoutView, GoogleAuthView
 )
 
 urlpatterns = [
@@ -17,4 +17,7 @@ urlpatterns = [
     path('auth/forgot-password/', ForgotPasswordView.as_view()),
     path('auth/verify-reset-otp/', VerifyPasswordResetOTPView.as_view()),
     path('auth/reset-password/', ResetPasswordView.as_view()),
+    
+    # Google signup
+    path('auth/google/', GoogleAuthView.as_view()),   # ← add this
 ]

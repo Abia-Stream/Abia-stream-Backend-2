@@ -40,6 +40,11 @@ Abia-Stream-Backend/
 │   ├── views.py
 │   └── urls.py
 ├── videos/
+├── playback/
+│   ├── models.py          # WatchHistory, ViewLog (managed=False)
+│   ├── serializers.py
+│   ├── views.py
+│   └── urls.py
 │   ├── models.py          # Video, Category, Tag, VideoTag (managed=False)
 │   ├── serializers.py
 │   ├── views.py
@@ -209,6 +214,17 @@ Server runs at `http://127.0.0.1:8000`
 | `POST` | `/api/videos/<id>/publish/` | Publish video | 🔒 creator/admin |
 | `POST` | `/api/videos/<id>/archive/` | Archive video | 🔒 creator/admin |
 
+### Playback
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `POST` | `/api/playback/view/` | Record a view | Public |
+| `POST` | `/api/playback/progress/` | Update watch progress | 🔒 |
+| `GET` | `/api/playback/history/` | Get watch history | 🔒 |
+| `DELETE` | `/api/playback/history/clear/` | Clear all history | 🔒 |
+| `DELETE` | `/api/playback/history/<video_id>/` | Remove one video | 🔒 |
+| `GET` | `/api/playback/continue-watching/` | Unfinished videos | 🔒 |
+
 ### Categories & Tags
 
 | Method | Endpoint | Description | Auth |
@@ -370,7 +386,7 @@ if (pm.response.code === 200) {
 - [x] Phase 1 — Auth Service (register, login, OTP, password reset)
 - [x] Phase 1 — Profile Service (CRUD)
 - [x] Phase 1 — Content Service (video upload, CRUD, categories, tags)
-- [ ] Phase 1 — Playback Service (watch history, view logs)
+- [x] Phase 1 — Playback Service (watch history, view logs)
 - [ ] Phase 2 — Interactions (likes, saves, shares)
 - [ ] Phase 2 — Creator Channels
 - [ ] Phase 2 — Subscriptions

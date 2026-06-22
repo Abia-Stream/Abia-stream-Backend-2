@@ -1,7 +1,7 @@
 # Abia Stream API Documentation
 
 **Version:** 1.0.0  
-**Base URL:** `http://127.0.0.1:8000/api` (development) · `https://abia-stream-backend.onrender.com/api/` (production)  
+**Base URL:** `http://127.0.0.1:8000/api` (development) · `https://api.abiastream.com/api` (production)  
 **Authentication:** Bearer JWT Token
 
 ---
@@ -996,7 +996,7 @@ Video Publishing:
 ## Postman Quick Setup
 
 1. Environment: `Abia-Stream-Dev`
-2. Variable: `base_url` = `https://abia-stream-backend.onrender.com/api/`
+2. Variable: `base_url` = `http://127.0.0.1:8000/api`
 3. Login **Scripts → Post-response**:
 
 ```javascript
@@ -1014,3 +1014,259 @@ if (pm.response.code === 200) {
 ---
 
 *Last updated: June 2026*
+
+---
+
+## Playback
+
+### Record a View
+
+Records a video view. Works for both authenticated and anonymous users.
+Called when a user starts watching a video.
+
+**Endpoint**
+```
+POST /playback/view/
+```
+
+**Request Body**
+```json
+{
+  "video_id": "4b9d0001-bd06-4184-9300-695948623d36",
+  "watch_duration_seconds": 0,
+  "completed": false,
+  "device_type": "desktop",
+  "referrer": "https://google.com",
+  "session_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+**Field Reference**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `video_id` | uuid | ✅ | Video being watched |
+| `watch_duration_seconds` | int | ❌ | Seconds watched so far |
+| `completed` | bool | ❌ | Whether video was completed |
+| `device_type` | string | ❌ | `desktop` \| `mobile` \| `tablet` |
+| `referrer` | string | ❌ | Where the user came from |
+| `session_id` | uuid | ❌ | Browser session ID |
+
+**Success Response** `200 OK`
+```json
+{
+  "detail": "View recorded."
+}
+```
+
+> Records a row in `view_logs` and increments `views_count` on the video. Anonymous users are tracked by `session_id` and `ip_address`.
+
+---
+
+### Update Watch Progress
+
+Update the user's watch progress for a video. Called every 15–30 seconds while watching.
+
+**Endpoint**
+```
+POST /playback/progress/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Request Body**
+```json
+{
+  "video_id": "4b9d0001-bd06-4184-9300-695948623d36",
+  "watch_progress_seconds": 150,
+  "completed": false,
+  "device_type": "desktop",
+  "session_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+**Success Response** `200 OK`
+```json
+{
+  "id": "uuid",
+  "video_id": "4b9d0001-bd06-4184-9300-695948623d36",
+  "video_title": "Big Buck Bunny Test",
+  "video_thumbnail": "https://res.cloudinary.com/...",
+  "video_duration": 360,
+  "watch_progress_seconds": 150,
+  "completed": false,
+  "device_type": "desktop",
+  "last_watched_at": "2026-06-14T17:00:00Z"
+}
+```
+
+> Auto-marks `completed = true` when progress reaches 90% of video duration. Uses `update_or_create` — creates a new entry on first watch, updates on rewatch.
+
+---
+
+### Get Watch History
+
+Returns the authenticated user's full watch history ordered by most recently watched.
+
+**Endpoint**
+```
+GET /playback/history/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Success Response** `200 OK`
+```json
+[
+  {
+    "id": "uuid",
+    "video_id": "4b9d0001-bd06-4184-9300-695948623d36",
+    "video_title": "Big Buck Bunny Test",
+    "video_thumbnail": "https://res.cloudinary.com/...",
+    "video_duration": 360,
+    "watch_progress_seconds": 324,
+    "completed": true,
+    "device_type": "desktop",
+    "last_watched_at": "2026-06-14T17:00:00Z"
+  }
+]
+```
+
+---
+
+### Clear Watch History
+
+Clears the authenticated user's entire watch history.
+
+**Endpoint**
+```
+DELETE /playback/history/clear/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Success Response** `200 OK`
+```json
+{
+  "detail": "Watch history cleared. 5 entries removed."
+}
+```
+
+---
+
+### Remove Single Video from History
+
+Removes a single video from the user's watch history.
+
+**Endpoint**
+```
+DELETE /playback/history/<video_id>/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Success Response** `200 OK`
+```json
+{
+  "detail": "Removed from watch history."
+}
+```
+
+**Error Responses**
+
+| Status | Detail |
+|--------|--------|
+| `404` | Not found |
+
+---
+
+### Continue Watching
+
+Returns videos the user has started but not yet completed, ordered by most recently watched. Used for the "Continue Watching" row on the home page.
+
+**Endpoint**
+```
+GET /playback/continue-watching/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Success Response** `200 OK`
+```json
+[
+  {
+    "id": "uuid",
+    "video_id": "4b9d0001-bd06-4184-9300-695948623d36",
+    "video_title": "Big Buck Bunny Test",
+    "video_thumbnail": "https://res.cloudinary.com/...",
+    "video_duration": 360,
+    "watch_progress_seconds": 150,
+    "completed": false,
+    "device_type": "mobile",
+    "last_watched_at": "2026-06-14T17:00:00Z"
+  }
+]
+```
+
+> Only returns videos where `completed = false` and `watch_progress_seconds > 0`. Max 20 results.
+
+---
+
+## Playback Endpoints Summary
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `POST` | `/api/playback/view/` | Record a view | Public |
+| `POST` | `/api/playback/progress/` | Update watch progress | 🔒 |
+| `GET` | `/api/playback/history/` | Get watch history | 🔒 |
+| `DELETE` | `/api/playback/history/clear/` | Clear all history | 🔒 |
+| `DELETE` | `/api/playback/history/<video_id>/` | Remove one video | 🔒 |
+| `GET` | `/api/playback/continue-watching/` | Unfinished videos | 🔒 |
+
+---
+
+## Playback Flow
+
+```
+User clicks play:
+  POST /playback/view/                  → log view, increment views_count
+
+Every 15-30 seconds while watching:
+  POST /playback/progress/              → update progress in watch_history
+
+User finishes or closes player:
+  POST /playback/progress/ (final)      → mark completed if >= 90%
+
+User opens home page:
+  GET  /playback/continue-watching/     → show "Continue Watching" row
+
+User opens history page:
+  GET  /playback/history/               → show full watch history
+```
+
+---
+
+## How `view_logs` and `watch_history` differ
+
+| | `watch_history` | `view_logs` |
+|---|---|---|
+| Rows | One per user per video | One per view event |
+| Updated | Yes, on every progress update | No, insert only |
+| Tracks | Progress + completion | IP, device, duration |
+| Purpose | Continue watching, history | Analytics |
+| Anonymous | ❌ Requires login | ✅ Works anonymously |
