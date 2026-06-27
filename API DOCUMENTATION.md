@@ -36,12 +36,14 @@ POST /auth/register/
 **Request Body**
 ```json
 {
+  "full_name": "John Doe",
   "email": "user@example.com",
   "password": "strongpassword123"
 }
 ```
 
 **Validation Rules**
+- `full_name` — required, user's full name
 - `email` — valid email format, must be unique
 - `password` — minimum 8 characters
 
@@ -1270,3 +1272,261 @@ User opens history page:
 | Tracks | Progress + completion | IP, device, duration |
 | Purpose | Continue watching, history | Analytics |
 | Anonymous | ❌ Requires login | ✅ Works anonymously |
+
+---
+
+## Creator Channels
+
+### List All Channels
+
+Returns all creator channels ordered by most recently created.
+
+**Endpoint**
+```
+GET /channels/
+```
+
+**Success Response** `200 OK`
+```json
+[
+  {
+    "id": "uuid",
+    "owner_email": "creator@example.com",
+    "owner_role": "creator",
+    "channel_name": "Abia Vibes",
+    "channel_slug": "abia-vibes",
+    "banner_url": null,
+    "channel_description": "Best content from Abia State",
+    "subscriber_count": 0,
+    "total_videos": 0,
+    "is_verified": false,
+    "custom_thumbnail_url": null,
+    "created_at": "2026-06-27T00:00:00Z",
+    "updated_at": "2026-06-27T00:00:00Z"
+  }
+]
+```
+
+---
+
+### Create Channel
+
+Creates a creator channel for the authenticated user. Automatically promotes user role from `viewer` to `creator`.
+
+**Endpoint**
+```
+POST /channels/create/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Request Body**
+```json
+{
+  "channel_name": "Abia Vibes",
+  "channel_description": "Best content from Abia State",
+  "banner_url": "https://res.cloudinary.com/your-cloud/image/upload/banner.jpg",
+  "custom_thumbnail_url": "https://res.cloudinary.com/your-cloud/image/upload/thumb.jpg"
+}
+```
+
+**Validation Rules**
+- `channel_name` — required, letters/numbers/spaces/hyphens/underscores only
+- `channel_name` — must be unique (slug is auto-generated)
+- Only one channel per user allowed
+
+**Success Response** `201 Created`
+```json
+{
+  "id": "uuid",
+  "owner_email": "creator@example.com",
+  "owner_role": "creator",
+  "channel_name": "Abia Vibes",
+  "channel_slug": "abia-vibes",
+  "banner_url": null,
+  "channel_description": "Best content from Abia State",
+  "subscriber_count": 0,
+  "total_videos": 0,
+  "is_verified": false,
+  "custom_thumbnail_url": null,
+  "created_at": "2026-06-27T00:00:00Z",
+  "updated_at": "2026-06-27T00:00:00Z"
+}
+```
+
+**Error Responses**
+
+| Status | Detail |
+|--------|--------|
+| `400` | You already have a channel |
+| `400` | A channel with this name already exists |
+| `400` | Channel name can only contain letters, numbers, spaces, hyphens and underscores |
+| `401` | Authentication credentials were not provided |
+
+> After creating a channel, the user's role is automatically promoted from `viewer` to `creator`, enabling video upload permissions.
+
+---
+
+### Get My Channel
+
+Returns the authenticated user's own channel.
+
+**Endpoint**
+```
+GET /channels/me/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Success Response** `200 OK` — returns full channel object.
+
+**Error Responses**
+
+| Status | Detail |
+|--------|--------|
+| `404` | No channel found |
+
+---
+
+### Update My Channel
+
+Updates the authenticated user's channel. All fields optional (PATCH).
+
+**Endpoint**
+```
+PATCH /channels/me/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Request Body** (all fields optional)
+```json
+{
+  "channel_name": "Abia Vibes Updated",
+  "channel_description": "Updated description",
+  "banner_url": "https://res.cloudinary.com/...",
+  "custom_thumbnail_url": "https://res.cloudinary.com/..."
+}
+```
+
+> Updating `channel_name` automatically updates `channel_slug`.
+
+**Success Response** `200 OK` — returns updated channel object.
+
+---
+
+### Delete My Channel
+
+Deletes the authenticated user's channel and demotes role back to `viewer`.
+
+**Endpoint**
+```
+DELETE /channels/me/delete/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Success Response** `200 OK`
+```json
+{
+  "detail": "Channel deleted successfully."
+}
+```
+
+> After deletion, the user's role is demoted from `creator` back to `viewer`, removing video upload permissions.
+
+---
+
+### Get Public Channel
+
+Returns any creator channel by its slug.
+
+**Endpoint**
+```
+GET /channels/<channel_slug>/
+```
+
+**Example**
+```
+GET /channels/abia-vibes/
+```
+
+**Success Response** `200 OK` — returns full channel object.
+
+**Error Responses**
+
+| Status | Detail |
+|--------|--------|
+| `404` | No channel found |
+
+---
+
+### Get Channel Videos
+
+Returns all published public videos for a channel.
+
+**Endpoint**
+```
+GET /channels/<channel_slug>/videos/
+```
+
+**Example**
+```
+GET /channels/abia-vibes/videos/
+```
+
+**Success Response** `200 OK` — returns array of video objects ordered by `published_at` descending.
+
+---
+
+## Creator Channels Endpoints Summary
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `GET` | `/api/channels/` | List all channels | Public |
+| `POST` | `/api/channels/create/` | Create channel | 🔒 |
+| `GET` | `/api/channels/me/` | Get my channel | 🔒 |
+| `PATCH` | `/api/channels/me/` | Update my channel | 🔒 |
+| `DELETE` | `/api/channels/me/delete/` | Delete my channel | 🔒 |
+| `GET` | `/api/channels/<slug>/` | Get public channel | Public |
+| `GET` | `/api/channels/<slug>/videos/` | Get channel videos | Public |
+
+---
+
+## Channel & Role Flow
+
+```
+Any logged-in user:
+POST /channels/create/       → channel created, role: viewer → creator
+                               user can now upload videos
+
+Creator updates channel:
+PATCH /channels/me/          → channel updated, slug auto-updated if name changed
+
+Creator deletes channel:
+DELETE /channels/me/delete/  → channel deleted, role: creator → viewer
+                               upload permissions removed
+```
+
+---
+
+## Enum Corrections
+
+Based on actual Supabase database values:
+
+| Enum | Correct Value | Previous (wrong) |
+|------|--------------|-----------------|
+| `interaction_type` | `favourite` | `favorite` |
+| `livestream_status` | `failed` | `faild` |

@@ -41,6 +41,11 @@ Abia-Stream-Backend/
 │   └── urls.py
 ├── videos/
 ├── playback/
+├── channels/
+│   ├── models.py          # CreatorChannel (managed=False)
+│   ├── serializers.py
+│   ├── views.py
+│   └── urls.py
 │   ├── models.py          # WatchHistory, ViewLog (managed=False)
 │   ├── serializers.py
 │   ├── views.py
@@ -214,6 +219,18 @@ Server runs at `http://127.0.0.1:8000`
 | `POST` | `/api/videos/<id>/publish/` | Publish video | 🔒 creator/admin |
 | `POST` | `/api/videos/<id>/archive/` | Archive video | 🔒 creator/admin |
 
+### Creator Channels
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `GET` | `/api/channels/` | List all channels | Public |
+| `POST` | `/api/channels/create/` | Create channel | 🔒 |
+| `GET` | `/api/channels/me/` | Get my channel | 🔒 |
+| `PATCH` | `/api/channels/me/` | Update my channel | 🔒 |
+| `DELETE` | `/api/channels/me/delete/` | Delete my channel | 🔒 |
+| `GET` | `/api/channels/<slug>/` | Get public channel | Public |
+| `GET` | `/api/channels/<slug>/videos/` | Get channel videos | Public |
+
 ### Playback
 
 | Method | Endpoint | Description | Auth |
@@ -338,6 +355,7 @@ Blocks Django from creating `auth_*` and internal tables in Supabase:
 
 ```python
 # accounts/routers.py
+# Also includes: accounts, profiles, videos, playback, channels
 BLOCKED_APPS = {'admin', 'contenttypes', 'auth', 'sessions'}
 
 class SupabaseRouter:
@@ -345,6 +363,22 @@ class SupabaseRouter:
         if app_label in BLOCKED_APPS:
             return False
         return None
+```
+
+### Email Service (Production)
+
+Uses **Resend HTTP API** instead of SMTP — Render's free tier blocks SMTP port 587.
+
+```python
+# Production email
+import resend
+resend.api_key = settings.RESEND_API_KEY
+```
+
+Required Render environment variables:
+```
+RESEND_API_KEY=re_xxxxxxxxxxxxx
+DEFAULT_FROM_EMAIL=onboarding@resend.dev
 ```
 
 ### `managed = False`
@@ -387,9 +421,9 @@ if (pm.response.code === 200) {
 - [x] Phase 1 — Profile Service (CRUD)
 - [x] Phase 1 — Content Service (video upload, CRUD, categories, tags)
 - [x] Phase 1 — Playback Service (watch history, view logs)
-- [ ] Phase 2 — Interactions (likes, saves, shares)
-- [ ] Phase 2 — Creator Channels
-- [ ] Phase 2 — Subscriptions
+- [ ] Phase 2 — Interactions (likes, saves, shares, dislike, favourite)
+- [x] Phase 2 — Creator Channels
+- [ ] Phase 2 — Subscriptions (follow/unfollow creators)
 - [ ] Phase 2 — Notifications
 - [ ] Phase 3 — Livestreams
 - [ ] Phase 4 — Redis Cache
@@ -403,3 +437,26 @@ if (pm.response.code === 200) {
 ## License
 
 MIT
+
+---
+
+## Creator Channel Role Flow
+
+```
+Register → role: viewer
+      ↓
+POST /api/channels/create/   → role promoted to creator
+      ↓
+Creator can now upload videos
+
+DELETE /api/channels/me/delete/ → role demoted back to viewer
+      ↓
+Upload permissions removed
+```
+
+## Enum Corrections (actual DB values)
+
+| Enum | Correct Value |
+|------|--------------|
+| `interaction_type` | `favourite` (not `favorite`) |
+| `livestream_status` | `failed` (not `faild`) |
