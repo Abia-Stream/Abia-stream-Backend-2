@@ -1,6 +1,5 @@
 import os
 import uuid
-import magic
 import hashlib
 from django.conf import settings
 from rest_framework.exceptions import ValidationError
