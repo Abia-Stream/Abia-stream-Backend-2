@@ -100,14 +100,6 @@ def check_magic_bytes(file, file_type='video'):
         if header.startswith(signature):
             return True
 
-    # Use python-magic as additional check
-    try:
-        detected_mime = magic.from_buffer(header, mime=True)
-        allowed_mimes = ALLOWED_VIDEO_MIME_TYPES if file_type == 'video' else ALLOWED_IMAGE_MIME_TYPES
-        if detected_mime in allowed_mimes:
-            return True
-    except Exception:
-        pass
 
     raise ValidationError(
         'File signature does not match expected format. '

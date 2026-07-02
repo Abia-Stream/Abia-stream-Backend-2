@@ -573,7 +573,7 @@ Content-Type: multipart/form-data
 | `revenue_share_percent` | Text | ❌ | 0–100 |
 | `tag_ids` | Text | ❌ | JSON array e.g. `[1, 2]` |
 
-> **Role required:** `creator` or `admin`
+> **Role required:** `creator`, `admin` `Viewer`
 
 **Success Response** `201 Created`
 ```json

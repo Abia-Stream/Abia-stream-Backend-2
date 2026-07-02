@@ -2,5 +2,6 @@
 set -o errexit
 
 pip install -r requirements.txt
+apt-get install -y libmagic1    
 python manage.py collectstatic --no-input
 python manage.py migrate
