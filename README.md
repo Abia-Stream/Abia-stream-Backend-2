@@ -42,6 +42,18 @@ Abia-Stream-Backend/
 ├── videos/
 ├── playback/
 ├── channels/
+├── interactions/
+│   ├── models.py          # Interaction (managed=False)
+│   ├── serializers.py
+│   ├── views.py
+│   ├── urls.py
+│   └── file_security.py   # Upload security pipeline
+├── subscriptions/
+│   ├── models.py          # Subscription (managed=False)
+│   ├── serializers.py
+│   ├── views.py
+│   ├── urls.py
+│   └── notifications.py   # Subscription notifications
 │   ├── models.py          # CreatorChannel (managed=False)
 │   ├── serializers.py
 │   ├── views.py
@@ -171,83 +183,162 @@ Server runs at `http://127.0.0.1:8000`
 
 ---
 
+
+---
+
+## API Versioning
+
+All endpoints are prefixed with `/api/v1/`. Future breaking changes will be released under `/api/v2/` without removing v1.
+
+```
+Development: http://127.0.0.1:8000/api/v1
+Production:  https://abia-stream-backend.onrender.com/api/v1
+```
+
+---
+
+## Pagination
+
+All list endpoints return **8 results per page** by default.
+
+```
+GET /api/v1/videos/           → page 1
+GET /api/v1/videos/?page=2    → page 2
+GET /api/v1/videos/?page_size=4 → 4 per page (max 50)
+```
+
+Response format:
+```json
+{
+    "pagination": {
+        "total": 24,
+        "page": 1,
+        "page_size": 8,
+        "total_pages": 3,
+        "next": "http://127.0.0.1:8000/api/v1/videos/?page=2",
+        "previous": null
+    },
+    "results": [...]
+}
+```
+
+---
+
+## File Upload Security
+
+All uploads go through a 10-step security pipeline in `videos/file_security.py`:
+
+```
+1.  Auth check
+2.  File size (max 500MB video / 10MB image)
+3.  Extension allowlist (.mp4 .mov .avi .mkv .webm)
+4.  MIME type verification
+5.  Magic bytes / file signature check
+6.  Malicious pattern scan
+7.  Safe UUID filename generated (original discarded)
+8.  Stored on Cloudinary (never on server)
+9.  DB saved via ORM (parameterized queries)
+10. Served via signed Cloudinary URLs
+```
+
 ## API Endpoints
 
 ### Authentication
 
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| `POST` | `/api/auth/register/` | Register new user | Public |
-| `POST` | `/api/auth/verify-email/` | Verify email OTP | Public |
-| `POST` | `/api/auth/resend-otp/` | Resend verification OTP | Public |
-| `POST` | `/api/auth/login/` | Login, get tokens | Public |
-| `POST` | `/api/auth/logout/` | Logout, blacklist token | 🔒 |
-| `POST` | `/api/auth/token/refresh/` | Refresh access token | Public |
+| `POST` | `/api/v1/auth/register/` | Register new user | Public |
+| `POST` | `/api/v1/auth/verify-email/` | Verify email OTP | Public |
+| `POST` | `/api/v1/auth/resend-otp/` | Resend verification OTP | Public |
+| `POST` | `/api/v1/auth/login/` | Login, get tokens | Public |
+| `POST` | `/api/v1/auth/logout/` | Logout, blacklist token | 🔒 |
+| `POST` | `/api/v1/auth/token/refresh/` | Refresh access token | Public |
 
 ### Password Reset
 
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| `POST` | `/api/auth/forgot-password/` | Request reset OTP | Public |
-| `POST` | `/api/auth/verify-reset-otp/` | Verify reset OTP | Public |
-| `POST` | `/api/auth/reset-password/` | Set new password | Public |
+| `POST` | `/api/v1/auth/forgot-password/` | Request reset OTP | Public |
+| `POST` | `/api/v1/auth/verify-reset-otp/` | Verify reset OTP | Public |
+| `POST` | `/api/v1/auth/reset-password/` | Set new password | Public |
 
 ### Profiles
 
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| `GET` | `/api/profile/me/` | Get own profile | 🔒 |
-| `PATCH` | `/api/profile/me/` | Update own profile | 🔒 |
-| `GET` | `/api/profile/<user_id>/` | View public profile | Public |
+| `GET` | `/api/v1/profile/me/` | Get own profile | 🔒 |
+| `PATCH` | `/api/v1/profile/me/` | Update own profile | 🔒 |
+| `GET` | `/api/v1/profile/<user_id>/` | View public profile | Public |
 
 ### Videos
 
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| `POST` | `/api/videos/upload/` | Server-side upload | 🔒 creator/admin |
-| `GET` | `/api/videos/upload/signed-params/` | Client-side upload credentials | 🔒 creator/admin |
-| `POST` | `/api/videos/upload/from-cloudinary/` | Save after client upload | 🔒 creator/admin |
-| `GET` | `/api/videos/` | List public videos | Public |
-| `GET` | `/api/videos/?category=1` | Filter by category | Public |
-| `GET` | `/api/videos/?tag=1` | Filter by tag | Public |
-| `GET` | `/api/videos/?creator=<uuid>` | Filter by creator | Public |
-| `GET` | `/api/videos/me/` | My videos | 🔒 |
-| `GET` | `/api/videos/me/?status=draft` | My drafts | 🔒 |
-| `GET` | `/api/videos/<id>/` | Get single video | Public* |
-| `PATCH` | `/api/videos/<id>/` | Update video | 🔒 Owner |
-| `DELETE` | `/api/videos/<id>/` | Delete video | 🔒 Owner |
-| `POST` | `/api/videos/<id>/publish/` | Publish video | 🔒 creator/admin |
-| `POST` | `/api/videos/<id>/archive/` | Archive video | 🔒 creator/admin |
+| `POST` | `/api/v1/videos/upload/` | Server-side upload | 🔒 creator/admin |
+| `GET` | `/api/v1/videos/upload/signed-params/` | Client-side upload credentials | 🔒 creator/admin |
+| `POST` | `/api/v1/videos/upload/from-cloudinary/` | Save after client upload | 🔒 creator/admin |
+| `GET` | `/api/v1/videos/` | List public videos | Public |
+| `GET` | `/api/v1/videos/?category=1` | Filter by category | Public |
+| `GET` | `/api/v1/videos/?tag=1` | Filter by tag | Public |
+| `GET` | `/api/v1/videos/?creator=<uuid>` | Filter by creator | Public |
+| `GET` | `/api/v1/videos/me/` | My videos | 🔒 |
+| `GET` | `/api/v1/videos/me/?status=draft` | My drafts | 🔒 |
+| `GET` | `/api/v1/videos/<id>/` | Get single video | Public* |
+| `PATCH` | `/api/v1/videos/<id>/` | Update video | 🔒 Owner |
+| `DELETE` | `/api/v1/videos/<id>/` | Delete video | 🔒 Owner |
+| `POST` | `/api/v1/videos/<id>/publish/` | Publish video | 🔒 creator/admin |
+| `POST` | `/api/v1/videos/<id>/archive/` | Archive video | 🔒 creator/admin |
 
 ### Creator Channels
 
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| `GET` | `/api/channels/` | List all channels | Public |
-| `POST` | `/api/channels/create/` | Create channel | 🔒 |
-| `GET` | `/api/channels/me/` | Get my channel | 🔒 |
-| `PATCH` | `/api/channels/me/` | Update my channel | 🔒 |
-| `DELETE` | `/api/channels/me/delete/` | Delete my channel | 🔒 |
-| `GET` | `/api/channels/<slug>/` | Get public channel | Public |
-| `GET` | `/api/channels/<slug>/videos/` | Get channel videos | Public |
+| `GET` | `/api/v1/channels/` | List all channels | Public |
+| `POST` | `/api/v1/channels/create/` | Create channel | 🔒 |
+| `GET` | `/api/v1/channels/me/` | Get my channel | 🔒 |
+| `PATCH` | `/api/v1/channels/me/` | Update my channel | 🔒 |
+| `DELETE` | `/api/v1/channels/me/delete/` | Delete my channel | 🔒 |
+| `GET` | `/api/v1/channels/<slug>/` | Get public channel | Public |
+| `GET` | `/api/v1/channels/<slug>/videos/` | Get channel videos | Public |
 
 ### Playback
 
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| `POST` | `/api/playback/view/` | Record a view | Public |
-| `POST` | `/api/playback/progress/` | Update watch progress | 🔒 |
-| `GET` | `/api/playback/history/` | Get watch history | 🔒 |
-| `DELETE` | `/api/playback/history/clear/` | Clear all history | 🔒 |
-| `DELETE` | `/api/playback/history/<video_id>/` | Remove one video | 🔒 |
-| `GET` | `/api/playback/continue-watching/` | Unfinished videos | 🔒 |
+| `POST` | `/api/v1/playback/view/` | Record a view | Public |
+| `POST` | `/api/v1/playback/progress/` | Update watch progress | 🔒 |
+| `GET` | `/api/v1/playback/history/` | Get watch history | 🔒 |
+| `DELETE` | `/api/v1/playback/history/clear/` | Clear all history | 🔒 |
+| `DELETE` | `/api/v1/playback/history/<video_id>/` | Remove one video | 🔒 |
+| `GET` | `/api/v1/playback/continue-watching/` | Unfinished videos | 🔒 |
+
+
+### Interactions
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `POST` | `/api/v1/interactions/` | Add/Remove interaction | 🔒 |
+| `GET` | `/api/v1/interactions/video/<id>/status/` | My interaction status | 🔒 |
+| `GET` | `/api/v1/interactions/video/<id>/counts/` | Video counts | Public |
+| `GET` | `/api/v1/interactions/liked/` | My liked videos | 🔒 |
+| `GET` | `/api/v1/interactions/saved/` | My saved videos | 🔒 |
+| `GET` | `/api/v1/interactions/favourites/` | My favourited videos | 🔒 |
+
+### Subscriptions
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `POST` | `/api/v1/subscriptions/<slug>/` | Subscribe/Unsubscribe | 🔒 |
+| `GET` | `/api/v1/subscriptions/` | My subscriptions | 🔒 |
+| `GET` | `/api/v1/subscriptions/<slug>/status/` | Subscription status | 🔒 |
+| `GET` | `/api/v1/subscriptions/<slug>/subscribers/` | Channel subscribers | Public |
 
 ### Categories & Tags
 
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| `GET` | `/api/categories/` | List active categories | Public |
-| `GET` | `/api/tags/` | List tags by usage | Public |
+| `GET` | `/api/v1/categories/` | List active categories | Public |
+| `GET` | `/api/v1/tags/` | List tags by usage | Public |
 
 > *Visibility rules apply for single video endpoint
 
@@ -399,7 +490,7 @@ All models use `managed = False` — Django reads/writes but never creates or al
 ## Postman Setup
 
 1. Environment: `Abia-Stream-Dev`
-2. Variables: `base_url` = `http://127.0.0.1:8000/api`
+2. Variables: `base_url` = `http://127.0.0.1:8000/api/v1`
 3. Login **Scripts → Post-response**:
 
 ```javascript
@@ -421,9 +512,9 @@ if (pm.response.code === 200) {
 - [x] Phase 1 — Profile Service (CRUD)
 - [x] Phase 1 — Content Service (video upload, CRUD, categories, tags)
 - [x] Phase 1 — Playback Service (watch history, view logs)
-- [ ] Phase 2 — Interactions (likes, saves, shares, dislike, favourite)
+- [x] Phase 2 — Interactions (likes, saves, dislikes, saves, favourites, reports)
 - [x] Phase 2 — Creator Channels
-- [ ] Phase 2 — Subscriptions (follow/unfollow creators)
+- [x] Phase 2 — Subscriptions (follow/unfollow creators)
 - [ ] Phase 2 — Notifications
 - [ ] Phase 3 — Livestreams
 - [ ] Phase 4 — Redis Cache

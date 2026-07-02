@@ -184,3 +184,41 @@ def get_video_info(public_id):
         public_id,
         resource_type='video',
     )
+
+
+
+def generate_signed_video_url(public_id, expires_in=3600):
+    """
+    Generate a signed Cloudinary URL that expires.
+    Prevents direct hotlinking or unauthorized access.
+    """
+    timestamp = int(time.time()) + expires_in
+
+    signed_url = cloudinary.utils.cloudinary_url(
+        public_id,
+        resource_type='video',
+        type='authenticated',
+        sign_url=True,
+        expires_at=timestamp,
+    )[0]
+
+    return signed_url
+
+
+def generate_signed_thumbnail_url(public_id, expires_in=3600):
+    """Generate a signed thumbnail URL."""
+    timestamp = int(time.time()) + expires_in
+
+    signed_url = cloudinary.utils.cloudinary_url(
+        public_id,
+        resource_type='video',
+        format='jpg',
+        sign_url=True,
+        expires_at=timestamp,
+        transformation=[
+            {'width': 1280, 'height': 720, 'crop': 'fill'},
+            {'quality': 'auto'},
+        ]
+    )[0]
+
+    return signed_url

@@ -1,7 +1,7 @@
 # Abia Stream API Documentation
 
 **Version:** 1.0.0  
-**Base URL:** `http://127.0.0.1:8000/api` (development) · `https://api.abiastream.com/api` (production)  
+**Base URL:** `http://127.0.0.1:8000/api/v1` (development) · `https://api.abiastream.com/api/v1` (production)  
 **Authentication:** Bearer JWT Token
 
 ---
@@ -20,7 +20,88 @@
 10. [Error Responses](#error-responses)
 11. [Status Codes](#status-codes)
 
+
 ---
+
+## API Versioning
+
+All endpoints are versioned under `/api/v1/`. When breaking changes are introduced a new version `/api/v2/` will be released without removing `/api/v1/`.
+
+```
+Base URL (development): http://127.0.0.1:8000/api/v1
+Base URL (production):  https://abia-stream-backend.onrender.com/api/v1
+```
+
+---
+
+## Pagination
+
+All list endpoints return paginated responses with **8 results per page**.
+
+**Query Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Results per page (max: 50, default: 8) |
+
+**Paginated Response Format**
+```json
+{
+    "pagination": {
+        "total": 24,
+        "page": 1,
+        "page_size": 8,
+        "total_pages": 3,
+        "next": "http://127.0.0.1:8000/api/v1/videos/?page=2",
+        "previous": null
+    },
+    "results": [...]
+}
+```
+
+**Examples**
+```
+GET /api/v1/videos/           → page 1 (default)
+GET /api/v1/videos/?page=2    → page 2
+GET /api/v1/videos/?page_size=4  → 4 results per page
+```
+
+**Paginated endpoints:**
+- `GET /api/v1/videos/` — public feed
+- `GET /api/v1/videos/me/` — my videos
+- `GET /api/v1/channels/` — channel list
+- `GET /api/v1/channels/<slug>/videos/` — channel videos
+- `GET /api/v1/playback/history/` — watch history
+- `GET /api/v1/interactions/liked/` — liked videos
+- `GET /api/v1/interactions/saved/` — saved videos
+- `GET /api/v1/interactions/favourites/` — favourited videos
+- `GET /api/v1/subscriptions/` — my subscriptions
+
+---
+
+## File Upload Security
+
+All file uploads go through a multi-layer security pipeline:
+
+| Step | Check |
+|------|-------|
+| 1 | Authentication verified |
+| 2 | File size checked (max 500MB video, 10MB image) |
+| 3 | Extension checked against allowlist |
+| 4 | MIME type verified |
+| 5 | Magic bytes / file signature verified |
+| 6 | File scanned for malicious patterns |
+| 7 | File renamed to random UUID (original name discarded) |
+| 8 | Stored on Cloudinary (never on server filesystem) |
+| 9 | Saved to DB via ORM (parameterized queries) |
+| 10 | Served via signed Cloudinary URLs |
+
+**Allowed video formats:** `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm`
+**Allowed image formats:** `.jpg`, `.jpeg`, `.png`, `.webp`
+
+---
+
 
 ## Authentication
 
@@ -998,7 +1079,7 @@ Video Publishing:
 ## Postman Quick Setup
 
 1. Environment: `Abia-Stream-Dev`
-2. Variable: `base_url` = `http://127.0.0.1:8000/api`
+2. Variable: `base_url` = `http://127.0.0.1:8000/api/v1`
 3. Login **Scripts → Post-response**:
 
 ```javascript
@@ -1233,12 +1314,12 @@ Authorization: Bearer <access_token>
 
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| `POST` | `/api/playback/view/` | Record a view | Public |
-| `POST` | `/api/playback/progress/` | Update watch progress | 🔒 |
-| `GET` | `/api/playback/history/` | Get watch history | 🔒 |
-| `DELETE` | `/api/playback/history/clear/` | Clear all history | 🔒 |
-| `DELETE` | `/api/playback/history/<video_id>/` | Remove one video | 🔒 |
-| `GET` | `/api/playback/continue-watching/` | Unfinished videos | 🔒 |
+| `POST` | `/api/v1/playback/view/` | Record a view | Public |
+| `POST` | `/api/v1/playback/progress/` | Update watch progress | 🔒 |
+| `GET` | `/api/v1/playback/history/` | Get watch history | 🔒 |
+| `DELETE` | `/api/v1/playback/history/clear/` | Clear all history | 🔒 |
+| `DELETE` | `/api/v1/playback/history/<video_id>/` | Remove one video | 🔒 |
+| `GET` | `/api/v1/playback/continue-watching/` | Unfinished videos | 🔒 |
 
 ---
 
@@ -1495,13 +1576,13 @@ GET /channels/abia-vibes/videos/
 
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| `GET` | `/api/channels/` | List all channels | Public |
-| `POST` | `/api/channels/create/` | Create channel | 🔒 |
-| `GET` | `/api/channels/me/` | Get my channel | 🔒 |
-| `PATCH` | `/api/channels/me/` | Update my channel | 🔒 |
-| `DELETE` | `/api/channels/me/delete/` | Delete my channel | 🔒 |
-| `GET` | `/api/channels/<slug>/` | Get public channel | Public |
-| `GET` | `/api/channels/<slug>/videos/` | Get channel videos | Public |
+| `GET` | `/api/v1/channels/` | List all channels | Public |
+| `POST` | `/api/v1/channels/create/` | Create channel | 🔒 |
+| `GET` | `/api/v1/channels/me/` | Get my channel | 🔒 |
+| `PATCH` | `/api/v1/channels/me/` | Update my channel | 🔒 |
+| `DELETE` | `/api/v1/channels/me/delete/` | Delete my channel | 🔒 |
+| `GET` | `/api/v1/channels/<slug>/` | Get public channel | Public |
+| `GET` | `/api/v1/channels/<slug>/videos/` | Get channel videos | Public |
 
 ---
 
@@ -1530,3 +1611,321 @@ Based on actual Supabase database values:
 |------|--------------|-----------------|
 | `interaction_type` | `favourite` | `favorite` |
 | `livestream_status` | `failed` | `faild` |
+
+---
+
+## Subscriptions
+
+### Subscribe / Unsubscribe
+
+Toggle subscription to a channel. First call subscribes, second call unsubscribes.
+
+**Endpoint**
+```
+POST /api/v1/subscriptions/<channel_slug>/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Subscribe Response** `201 Created`
+```json
+{
+    "detail": "Subscribed to Abia Vibes.",
+    "action": "subscribed",
+    "channel_slug": "abia-vibes",
+    "subscriber_count": 101
+}
+```
+
+**Unsubscribe Response** `200 OK`
+```json
+{
+    "detail": "Unsubscribed from Abia Vibes.",
+    "action": "unsubscribed",
+    "channel_slug": "abia-vibes",
+    "subscriber_count": 100
+}
+```
+
+**Error Responses**
+
+| Status | Detail |
+|--------|--------|
+| `400` | You cannot subscribe to your own channel |
+| `404` | Channel not found |
+
+> Subscribing automatically increments `subscriber_count` on `creator_channels` and `total_subscribers` on `profiles`. Also sends a notification to the channel owner.
+
+---
+
+### My Subscriptions
+
+Returns all channels the authenticated user subscribes to.
+
+**Endpoint**
+```
+GET /api/v1/subscriptions/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Success Response** `200 OK` — paginated list of subscriptions.
+
+```json
+{
+    "pagination": {
+        "total": 5,
+        "page": 1,
+        "page_size": 8,
+        "total_pages": 1,
+        "next": null,
+        "previous": null
+    },
+    "results": [
+        {
+            "id": "uuid",
+            "channel_id": "uuid",
+            "channel_name": "Abia Vibes",
+            "channel_slug": "abia-vibes",
+            "channel_thumbnail": null,
+            "subscriber_count": 101,
+            "created_at": "2026-06-27T00:00:00Z"
+        }
+    ]
+}
+```
+
+---
+
+### Subscription Status
+
+Check if the authenticated user is subscribed to a channel.
+
+**Endpoint**
+```
+GET /api/v1/subscriptions/<channel_slug>/status/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Success Response** `200 OK`
+```json
+{
+    "channel_slug": "abia-vibes",
+    "channel_name": "Abia Vibes",
+    "is_subscribed": true,
+    "subscriber_count": 101
+}
+```
+
+---
+
+### Channel Subscribers
+
+Returns subscriber count and list for a channel.
+
+**Endpoint**
+```
+GET /api/v1/subscriptions/<channel_slug>/subscribers/
+```
+
+**Success Response** `200 OK`
+```json
+{
+    "channel_name": "Abia Vibes",
+    "subscriber_count": 101,
+    "subscribers": [
+        {
+            "id": "uuid",
+            "subscribed_at": "2026-06-27T00:00:00Z"
+        }
+    ]
+}
+```
+
+---
+
+## Subscriptions Endpoints Summary
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `POST` | `/api/v1/subscriptions/<slug>/` | Subscribe/Unsubscribe toggle | 🔒 |
+| `GET` | `/api/v1/subscriptions/` | My subscriptions | 🔒 |
+| `GET` | `/api/v1/subscriptions/<slug>/status/` | Subscription status | 🔒 |
+| `GET` | `/api/v1/subscriptions/<slug>/subscribers/` | Channel subscribers | Public |
+
+---
+
+## Interactions
+
+### Interact with a Video
+
+Like, dislike, save, favourite, or report a video. Each interaction toggles — calling the same endpoint twice removes the interaction.
+
+**Endpoint**
+```
+POST /api/v1/interactions/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Request Body**
+```json
+{
+    "video_id": "4b9d0001-bd06-4184-9300-695948623d36",
+    "interaction_type": "like"
+}
+```
+
+**Interaction Types**
+
+| Value | Description | Updates Counter |
+|-------|-------------|-----------------|
+| `like` | Like a video | `likes_count + 1` |
+| `dislike` | Dislike a video | — |
+| `save` | Save a video | `saves_count + 1` |
+| `favourite` | Favourite a video | — |
+| `report` | Report a video | — |
+
+**Add Response** `201 Created`
+```json
+{
+    "detail": "Like added.",
+    "action": "added",
+    "interaction_type": "like",
+    "id": "uuid"
+}
+```
+
+**Remove Response** `200 OK`
+```json
+{
+    "detail": "Like removed.",
+    "action": "removed",
+    "interaction_type": "like"
+}
+```
+
+**Error Responses**
+
+| Status | Detail |
+|--------|--------|
+| `400` | You cannot report your own video |
+| `404` | Video not found |
+
+> **Like and Dislike are mutually exclusive** — liking a video automatically removes a dislike and vice versa.
+
+---
+
+### Video Interaction Status
+
+Check which interactions the current user has on a video.
+
+**Endpoint**
+```
+GET /api/v1/interactions/video/<video_id>/status/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Success Response** `200 OK`
+```json
+{
+    "video_id": "uuid",
+    "liked": true,
+    "disliked": false,
+    "saved": false,
+    "favourited": false,
+    "reported": false,
+    "likes_count": 42,
+    "saves_count": 15
+}
+```
+
+---
+
+### Video Interaction Counts
+
+Returns public interaction counts for a video.
+
+**Endpoint**
+```
+GET /api/v1/interactions/video/<video_id>/counts/
+```
+
+**Success Response** `200 OK`
+```json
+{
+    "video_id": "uuid",
+    "likes_count": 42,
+    "saves_count": 15,
+    "views_count": 1200,
+    "shares_count": 8
+}
+```
+
+---
+
+### My Liked Videos
+
+**Endpoint**
+```
+GET /api/v1/interactions/liked/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Success Response** `200 OK` — paginated list of liked video interactions.
+
+---
+
+### My Saved Videos
+
+**Endpoint**
+```
+GET /api/v1/interactions/saved/
+```
+
+**Success Response** `200 OK` — paginated list of saved video interactions.
+
+---
+
+### My Favourited Videos
+
+**Endpoint**
+```
+GET /api/v1/interactions/favourites/
+```
+
+**Success Response** `200 OK` — paginated list of favourited video interactions.
+
+---
+
+## Interactions Endpoints Summary
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `POST` | `/api/v1/interactions/` | Add/Remove interaction | 🔒 |
+| `GET` | `/api/v1/interactions/video/<id>/status/` | My interaction status | 🔒 |
+| `GET` | `/api/v1/interactions/video/<id>/counts/` | Video counts | Public |
+| `GET` | `/api/v1/interactions/liked/` | My liked videos | 🔒 |
+| `GET` | `/api/v1/interactions/saved/` | My saved videos | 🔒 |
+| `GET` | `/api/v1/interactions/favourites/` | My favourited videos | 🔒 |

@@ -13,6 +13,8 @@ from playback.serializers import (
     RecordViewSerializer,
 )
 from videos.models import Video
+from abiastream.pagination import StandardPagination
+
 
 
 def get_client_ip(request):
@@ -50,8 +52,11 @@ class WatchHistoryListView(APIView):
             user=request.user
         ).select_related('video').order_by('-last_watched_at')
 
-        serializer = WatchHistorySerializer(history, many=True)
-        return Response(serializer.data)
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(history, request)
+        serializer = WatchHistorySerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
 
 
 class UpdateProgressView(APIView):

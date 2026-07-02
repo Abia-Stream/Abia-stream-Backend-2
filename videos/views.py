@@ -1,11 +1,13 @@
 import uuid
+from resend.exceptions import ValidationError
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-
+from videos.file_security import validate_video_file
+from abiastream.pagination import StandardPagination
 from videos.models import Video, Category, Tag, VideoTag
 from videos.serializers import (
     VideoUploadSerializer, VideoFromCloudinarySerializer,
@@ -19,20 +21,20 @@ from videos.cloudinary_service import (
     delete_video_from_cloudinary,
 )
 
-UPLOAD_ROLES = ['creator', 'admin']
+UPLOAD_ROLES = ['viewer', 'creator', 'admin']
 
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def check_upload_permission(user):
-    """Reusable role check for all upload views."""
-    if user.role not in UPLOAD_ROLES:
-        return Response(
-            {'detail': 'Only creators and admins can upload videos.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
-    return None
+# def check_upload_permission(user):
+#     """Reusable role check for all upload views."""
+#     if user.role not in UPLOAD_ROLES:
+#         return Response(
+#             {'detail': 'Only creators and admins can upload videos.'},
+#             status=status.HTTP_403_FORBIDDEN
+#         )
+#     return None
 
 def attach_tags(video, tag_ids):
     """Attach tags to a video and increment usage counts."""
@@ -75,48 +77,42 @@ def is_video_accessible(video, user):
 
 # ── Server-side Upload ────────────────────────────────────────────────────────
 
+
+
 class VideoUploadView(APIView):
-    """
-    Upload a video file directly to Django.
-    Django then uploads it to Cloudinary server-side.
-
-    POST /api/videos/upload/
-    Content-Type: multipart/form-data
-
-    Fields:
-      - video_file (file, required)
-      - title (string, required)
-      - description (string, optional)
-      - category (int, optional) — category ID
-      - visibility (string, optional) — public | unlisted | private | subscribers_only
-      - is_monetized (bool, optional)
-      - revenue_share_percent (decimal, optional)
-      - tag_ids (list of ints, optional)
-    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        denied = check_upload_permission(request.user)
-        if denied:
-            return denied
         serializer = VideoUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         video_file = serializer.validated_data.pop('video_file')
         tag_ids = serializer.validated_data.pop('tag_ids', [])
 
-        # Upload to Cloudinary
+        # ── Security checks ───────────────────────────────────────────────
+        try:
+            file_info = validate_video_file(video_file)
+        except ValidationError as e:
+            return Response(
+                {'detail': e.detail},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Rename file to safe name before uploading
+        video_file.name = file_info['safe_name']
+
+        # ── Upload to Cloudinary ──────────────────────────────────────────
         try:
             result = upload_video_to_cloudinary(video_file)
         except Exception as e:
             return Response(
-                {'detail': f'Cloudinary upload failed: {str(e)}'},
+                {'detail': f'Upload failed: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
         thumbnail_url = generate_thumbnail_url(result['public_id'])
 
-        # Create video record
+        # ── Save to DB using ORM (parameterized queries) ──────────────────
         video = Video.objects.create(
             creator=request.user,
             cloudinary_public_id=result['public_id'],
@@ -156,9 +152,9 @@ class SignedUploadParamsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        denied = check_upload_permission(request.user)
-        if denied:
-            return denied
+        # denied = check_upload_permission(request.user)
+        # if denied:
+        #     return denied
         params = generate_signed_upload_params()
         return Response(params, status=status.HTTP_200_OK)
 
@@ -191,9 +187,9 @@ class VideoFromCloudinaryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        denied = check_upload_permission(request.user)
-        if denied:
-            return denied
+        # denied = check_upload_permission(request.user)
+        # if denied:
+        #     return denied
         serializer = VideoFromCloudinarySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -246,6 +242,12 @@ class VideoListView(APIView):
         if creator_id:
             queryset = queryset.filter(creator_id=creator_id)
 
+        # Paginate
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(queryset, request)
+        serializer = VideoSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
         serializer = VideoSerializer(queryset, many=True)
         return Response(serializer.data)
 
@@ -269,8 +271,11 @@ class MyVideosView(APIView):
         if video_status:
             queryset = queryset.filter(status=video_status)
 
-        serializer = VideoSerializer(queryset, many=True)
-        return Response(serializer.data)
+        
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(queryset, request)
+        serializer = VideoSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
 
 # ── Single Video ──────────────────────────────────────────────────────────────
@@ -370,9 +375,9 @@ class PublishVideoView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, video_id):
-        denied = check_upload_permission(request.user)
-        if denied:
-            return denied
+        # denied = check_upload_permission(request.user)
+        # if denied:
+        #     return denied
         video = get_object_or_404(Video, id=video_id, creator=request.user)
 
         if video.status not in [Video.Status.READY, Video.Status.DRAFT]:
@@ -398,9 +403,9 @@ class ArchiveVideoView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, video_id):
-        denied = check_upload_permission(request.user)
-        if denied:
-            return denied
+        # denied = check_upload_permission(request.user)
+        # if denied:
+        #     return denied
         video = get_object_or_404(Video, id=video_id, creator=request.user)
 
         if video.status != Video.Status.PUBLISHED:

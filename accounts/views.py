@@ -315,8 +315,6 @@ class LogoutView(APIView):
             )
 
 
-# accounts/views.py
-
 class AdminUserListView(APIView):
     permission_classes = [IsAuthenticated]
 

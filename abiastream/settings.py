@@ -41,6 +41,19 @@ SECURE_PROXY_SSL_HEADER = (
     "https",
 )
 
+SECURE_CONTENT_TYPE_NOSNIFF = True       # prevent MIME sniffing
+X_FRAME_OPTIONS = 'DENY'                 # prevent clickjacking
+SECURE_BROWSER_XSS_FILTER = True         # XSS protection
+
+# In production only:
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -74,6 +87,8 @@ INSTALLED_APPS = [
     'videos',
     'playback',
     'channels',
+    'interactions'
+    # 'analytics',
 
 ]
 
@@ -178,6 +193,7 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 AUTH_USER_MODEL = 'accounts.User'
 
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -186,8 +202,11 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
-}
 
+    # ── Pagination ────────────────────────────────────────────────────────
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 8,  # ← 8 per page as team lead specified
+}
 SPECTACULAR_SETTINGS = {
     'TITLE': 'ABIA STREAM API',
     'DESCRIPTION': 'API for ABIA STREAM',
@@ -286,3 +305,5 @@ cloudinary.config(
     api_secret=CLOUDINARY_API_SECRET,
     secure=True
 )
+
+
