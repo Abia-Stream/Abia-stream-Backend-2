@@ -36,25 +36,50 @@ UPLOAD_ROLES = ['viewer', 'creator', 'admin']
 #         )
 #     return None
 
+
+from django.db import connection
+
 def attach_tags(video, tag_ids):
-    """Attach tags to a video and increment usage counts."""
+    """Attach tags to a video using raw SQL to avoid id column issue."""
+    from django.utils import timezone
     for tag_id in tag_ids:
         try:
             tag = Tag.objects.get(id=tag_id)
-            VideoTag.objects.get_or_create(video=video, tag=tag)
-            tag.usage_count = (tag.usage_count or 0) + 1
-            tag.save()
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO video_tags (video_id, tag_id, created_at)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (video_id, tag_id) DO NOTHING
+                """, [str(video.id), tag_id, timezone.now()])
+            # Increment tag usage count
+            Tag.objects.filter(id=tag_id).update(
+                usage_count=models.F('usage_count') + 1
+            )
         except Tag.DoesNotExist:
             pass
 
 
 def detach_tags(video):
-    """Remove all tags from a video and decrement usage counts."""
-    for vt in VideoTag.objects.filter(video=video):
-        tag = vt.tag
-        tag.usage_count = max(0, (tag.usage_count or 1) - 1)
-        tag.save()
-    VideoTag.objects.filter(video=video).delete()
+    """Remove all tags from a video."""
+    with connection.cursor() as cursor:
+        # Get tag ids first to decrement counts
+        cursor.execute(
+            "SELECT tag_id FROM video_tags WHERE video_id = %s",
+            [str(video.id)]
+        )
+        tag_ids = [row[0] for row in cursor.fetchall()]
+
+        # Decrement usage counts
+        for tag_id in tag_ids:
+            Tag.objects.filter(id=tag_id).update(
+                usage_count=models.F('usage_count') - 1
+            )
+
+        # Delete all video tags
+        cursor.execute(
+            "DELETE FROM video_tags WHERE video_id = %s",
+            [str(video.id)]
+        )
 
 
 def is_video_accessible(video, user):

@@ -136,3 +136,11 @@ class VideoTag(models.Model):
         managed = False
         db_table = 'video_tags'
         unique_together = ('video', 'tag')
+
+    def save(self, *args, **kwargs):
+        # Use get_or_create pattern instead
+        VideoTag.objects.get_or_create(
+            video=self.video,
+            tag=self.tag,
+            defaults={'created_at': self.created_at}
+        )
