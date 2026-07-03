@@ -54,6 +54,11 @@ Abia-Stream-Backend/
 │   ├── views.py
 │   ├── urls.py
 │   └── notifications.py   # Subscription notifications
+├── notifications/
+│   ├── models.py          # Notification (managed=False)
+│   ├── serializers.py
+│   ├── views.py
+│   └── urls.py
 │   ├── models.py          # CreatorChannel (managed=False)
 │   ├── serializers.py
 │   ├── views.py
@@ -333,6 +338,18 @@ All uploads go through a 10-step security pipeline in `videos/file_security.py`:
 | `GET` | `/api/v1/subscriptions/<slug>/status/` | Subscription status | 🔒 |
 | `GET` | `/api/v1/subscriptions/<slug>/subscribers/` | Channel subscribers | Public |
 
+
+### Notifications
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `GET` | `/api/v1/notifications/` | List notifications | 🔒 |
+| `GET` | `/api/v1/notifications/unread-count/` | Unread count | 🔒 |
+| `PATCH` | `/api/v1/notifications/<id>/read/` | Mark as read | 🔒 |
+| `PATCH` | `/api/v1/notifications/read-all/` | Mark all as read | 🔒 |
+| `PATCH` | `/api/v1/notifications/<id>/archive/` | Archive | 🔒 |
+| `DELETE` | `/api/v1/notifications/<id>/` | Delete | 🔒 |
+
 ### Categories & Tags
 
 | Method | Endpoint | Description | Auth |
@@ -515,7 +532,7 @@ if (pm.response.code === 200) {
 - [x] Phase 2 — Interactions (likes, saves, dislikes, saves, favourites, reports)
 - [x] Phase 2 — Creator Channels
 - [x] Phase 2 — Subscriptions (follow/unfollow creators)
-- [ ] Phase 2 — Notifications
+- [x] Phase 2 — Notifications
 - [ ] Phase 3 — Livestreams
 - [ ] Phase 4 — Redis Cache
 - [ ] Phase 4 — Search Service
@@ -545,9 +562,3 @@ DELETE /api/channels/me/delete/ → role demoted back to viewer
 Upload permissions removed
 ```
 
-## Enum Corrections (actual DB values)
-
-| Enum | Correct Value |
-|------|--------------|
-| `interaction_type` | `favourite` (not `favorite`) |
-| `livestream_status` | `failed` (not `faild`) |

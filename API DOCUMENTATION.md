@@ -16,7 +16,8 @@
 6. [Videos](#videos)
 7. [Categories](#categories)
 8. [Tags](#tags)
-9. [Enums Reference](#enums-reference)
+9. [Notifications](#notifications)
+10. [Enums Reference](#enums-reference)
 10. [Error Responses](#error-responses)
 11. [Status Codes](#status-codes)
 
@@ -167,11 +168,13 @@ POST /auth/login/
 {
   "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "user": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "email": "user@example.com",
-    "role": "viewer"
-  }
+    "user": {
+        "id": "2483bf15-de2c-4d7f-b31e-5eb9ab780bed",
+        "email": "promzzygod90@gmail.com",
+        "role": "viewer",
+        "full_name": "UHAa UCHEEE",
+        "avatar_url": "https://lh3.googleusercontent.com/a/ACg8ocKcK44BsAJpZY1cY0sv6YaV9j8ZOEJnfJ7izuhftPFJCJQpXtsi=s96-c"
+    }
 }
 ```
 
@@ -573,7 +576,7 @@ Content-Type: multipart/form-data
 | `revenue_share_percent` | Text | ❌ | 0–100 |
 | `tag_ids` | Text | ❌ | JSON array e.g. `[1, 2]` |
 
-> **Role required:** `creator`, `admin` `Viewer`
+> **Role required:** `creator` or `admin`
 
 **Success Response** `201 Created`
 ```json
@@ -1061,6 +1064,23 @@ Video Upload (Client-side):
 Video Publishing:
 1. POST /videos/<id>/publish/        → status → published
 2. POST /videos/<id>/archive/        → status → archived
+
+Interactions:
+POST /interactions/                  → like/unlike, save/unsave, favourite, dislike, report
+GET  /interactions/video/<id>/status/ → check my interactions on a video
+GET  /interactions/liked/            → my liked videos
+GET  /interactions/saved/            → my saved videos
+
+Subscriptions:
+POST /subscriptions/<slug>/          → subscribe/unsubscribe toggle
+GET  /subscriptions/                 → my subscriptions
+GET  /subscriptions/<slug>/status/   → check subscription status
+
+Creator Dashboard:
+GET  /channels/me/dashboard/         → stats summary
+GET  /channels/me/performance/       → views chart (7d/28d/90d)
+GET  /channels/me/content/           → my videos with stats
+GET  /channels/me/videos/<id>/analytics/ → single video analytics
 ```
 
 ---
@@ -1929,3 +1949,204 @@ GET /api/v1/interactions/favourites/
 | `GET` | `/api/v1/interactions/liked/` | My liked videos | 🔒 |
 | `GET` | `/api/v1/interactions/saved/` | My saved videos | 🔒 |
 | `GET` | `/api/v1/interactions/favourites/` | My favourited videos | 🔒 |
+
+
+---
+
+## Notifications
+
+### List Notifications
+
+Returns the authenticated user's notifications ordered by most recent.
+
+**Endpoint**
+```
+GET /api/v1/notifications/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Query Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `is_read` | bool | Filter by read status (`true` or `false`) |
+| `type` | string | Filter by notification type |
+
+**Success Response** `200 OK` — paginated
+```json
+{
+    "pagination": {
+        "total": 5,
+        "page": 1,
+        "page_size": 8,
+        "total_pages": 1,
+        "next": null,
+        "previous": null
+    },
+    "results": [
+        {
+            "id": "uuid",
+            "notification_type": "new_subscriber",
+            "title": "New Subscriber",
+            "message": "john@example.com subscribed to your channel",
+            "data": {
+                "subscriber_id": "uuid",
+                "channel_id": "uuid"
+            },
+            "is_read": false,
+            "is_archived": false,
+            "created_at": "2026-07-03T03:48:33Z"
+        }
+    ]
+}
+```
+
+---
+
+### Mark Notification as Read
+
+Marks a single notification as read.
+
+**Endpoint**
+```
+PATCH /api/v1/notifications/<notification_id>/read/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Success Response** `200 OK`
+```json
+{
+    "detail": "Notification marked as read."
+}
+```
+
+**Error Responses**
+
+| Status | Detail |
+|--------|--------|
+| `404` | Notification not found |
+
+---
+
+### Mark All as Read
+
+Marks all unread notifications as read.
+
+**Endpoint**
+```
+PATCH /api/v1/notifications/read-all/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Success Response** `200 OK`
+```json
+{
+    "detail": "5 notifications marked as read."
+}
+```
+
+---
+
+### Archive Notification
+
+Archives a single notification.
+
+**Endpoint**
+```
+PATCH /api/v1/notifications/<notification_id>/archive/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Success Response** `200 OK`
+```json
+{
+    "detail": "Notification archived."
+}
+```
+
+---
+
+### Delete Notification
+
+Permanently deletes a notification.
+
+**Endpoint**
+```
+DELETE /api/v1/notifications/<notification_id>/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Success Response** `200 OK`
+```json
+{
+    "detail": "Notification deleted."
+}
+```
+
+---
+
+### Unread Count
+
+Returns the count of unread notifications. Used for the notification badge on the frontend.
+
+**Endpoint**
+```
+GET /api/v1/notifications/unread-count/
+```
+
+**Headers**
+```
+Authorization: Bearer <access_token>
+```
+
+**Success Response** `200 OK`
+```json
+{
+    "unread_count": 3
+}
+```
+
+---
+
+## Notification Types
+
+| Type | Triggered by |
+|------|-------------|
+| `new_subscriber` | Someone subscribes to your channel |
+| `new_like` | Someone likes your video |
+| `new_comment` | Someone comments on your video (Phase 3) |
+| `video_published` | Your video finishes processing and is ready |
+| `new_video` | A channel you subscribe to uploads a new video |
+
+---
+
+## Notifications Endpoints Summary
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `GET` | `/api/v1/notifications/` | List notifications | 🔒 |
+| `GET` | `/api/v1/notifications/unread-count/` | Unread count | 🔒 |
+| `PATCH` | `/api/v1/notifications/<id>/read/` | Mark as read | 🔒 |
+| `PATCH` | `/api/v1/notifications/read-all/` | Mark all as read | 🔒 |
+| `PATCH` | `/api/v1/notifications/<id>/archive/` | Archive notification | 🔒 |
+| `DELETE` | `/api/v1/notifications/<id>/` | Delete notification | 🔒 |
