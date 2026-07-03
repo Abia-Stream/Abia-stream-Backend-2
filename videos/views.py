@@ -9,6 +9,8 @@ from django.utils import timezone
 from videos.file_security import validate_video_file
 from abiastream.pagination import StandardPagination
 from videos.models import Video, Category, Tag, VideoTag
+from django.db.models import F
+from django.db import connection, models
 from videos.serializers import (
     VideoUploadSerializer, VideoFromCloudinarySerializer,
     VideoSerializer, VideoUpdateSerializer,
@@ -37,7 +39,6 @@ UPLOAD_ROLES = ['viewer', 'creator', 'admin']
 #     return None
 
 
-from django.db import connection
 
 def attach_tags(video, tag_ids):
     """Attach tags to a video using raw SQL to avoid id column issue."""
