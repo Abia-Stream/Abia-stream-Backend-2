@@ -255,7 +255,7 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        # ── Successful login — reset lockout fields ───────────────────────
+# ── Successful login — reset lockout fields ───────────────────────
         user.failed_login_attempts = 0
         user.locked_until = None
         user.last_login = timezone.now()
@@ -264,6 +264,16 @@ class LoginView(APIView):
 
         tokens = get_tokens_for_user(user)
 
+        # Get profile data
+        try:
+            from profiles.models import Profile
+            profile = Profile.objects.get(user=user)
+            full_name = profile.full_name
+            avatar_url = profile.avatar_url
+        except Profile.DoesNotExist:
+            full_name = None
+            avatar_url = None
+
         return Response({
             'access': tokens['access'],
             'refresh': tokens['refresh'],
@@ -271,6 +281,8 @@ class LoginView(APIView):
                 'id': str(user.id),
                 'email': user.email,
                 'role': user.role,
+                'full_name': full_name,    
+                'avatar_url': avatar_url,  
             }
         }, status=status.HTTP_200_OK)
 
