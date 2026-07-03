@@ -187,22 +187,36 @@ def get_video_info(public_id):
 
 
 
-def generate_signed_video_url(public_id, expires_in=3600):
+def generate_signed_upload_params(folder='abia_stream/videos'):
     """
-    Generate a signed Cloudinary URL that expires.
-    Prevents direct hotlinking or unauthorized access.
+    Generate signed parameters for direct frontend → Cloudinary upload.
+    Uses Cloudinary's official signing method.
     """
-    timestamp = int(time.time()) + expires_in
+    import time
+    import cloudinary.utils
 
-    signed_url = cloudinary.utils.cloudinary_url(
-        public_id,
-        resource_type='video',
-        type='authenticated',
-        sign_url=True,
-        expires_at=timestamp,
-    )[0]
+    timestamp = int(time.time())
 
-    return signed_url
+    params_to_sign = {
+        'folder': folder,
+        'timestamp': timestamp,
+    }
+
+    # Use Cloudinary's official signing utility
+    signature = cloudinary.utils.api_sign_request(
+        params_to_sign,
+        settings.CLOUDINARY_API_SECRET
+    )
+
+    return {
+        'timestamp': timestamp,
+        'signature': signature,
+        'api_key': settings.CLOUDINARY_API_KEY,
+        'cloud_name': settings.CLOUDINARY_CLOUD_NAME,
+        'folder': folder,
+        'resource_type': 'video',
+        'upload_url': f'https://api.cloudinary.com/v1_1/{settings.CLOUDINARY_CLOUD_NAME}/video/upload',
+    }
 
 
 def generate_signed_thumbnail_url(public_id, expires_in=3600):
