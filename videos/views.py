@@ -268,14 +268,27 @@ class VideoListView(APIView):
         if creator_id:
             queryset = queryset.filter(creator_id=creator_id)
 
+        
+        # ── Ordering ──────────────────────────────────────────────────────
+        ordering = request.query_params.get('ordering', '-created_at')
+        allowed_orderings = [
+            '-views_count',     # trending
+            '-published_at',    # new release
+            '-likes_count',     # most liked
+            '-created_at',      # default
+            'created_at',
+        ]
+        if ordering not in allowed_orderings:
+            ordering = '-created_at'
+        queryset = queryset.order_by(ordering)
+
         # Paginate
         paginator = StandardPagination()
         page = paginator.paginate_queryset(queryset, request)
         serializer = VideoSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
 
-        serializer = VideoSerializer(queryset, many=True)
-        return Response(serializer.data)
+
 
 
 class MyVideosView(APIView):

@@ -165,11 +165,21 @@ class ChannelVideosView(APIView):
         return paginator.get_paginated_response(serializer.data)
 
 
+
 class ChannelListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        channels = CreatorChannel.objects.select_related('user').order_by('-created_at')
+        ordering = request.query_params.get('ordering', '-created_at')
+        allowed_orderings = [
+            '-subscriber_count',  # top creators
+            '-total_videos',
+            '-created_at',
+        ]
+        if ordering not in allowed_orderings:
+            ordering = '-created_at'
+
+        channels = CreatorChannel.objects.select_related('user').order_by(ordering)
         paginator = StandardPagination()
         page = paginator.paginate_queryset(channels, request)
         serializer = CreatorChannelSerializer(page, many=True)
