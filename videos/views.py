@@ -167,23 +167,19 @@ class VideoUploadView(APIView):
 # ── Client-side Upload ────────────────────────────────────────────────────────
 
 class SignedUploadParamsView(APIView):
-    """
-    Get signed params for direct frontend → Cloudinary upload.
-
-    GET /api/videos/upload/signed-params/
-
-    Frontend uses these params to upload directly to Cloudinary,
-    then calls /api/videos/upload/from-cloudinary/ with the result.
-    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # denied = check_upload_permission(request.user)
-        # if denied:
-        #     return denied
-        params = generate_signed_upload_params()
-        return Response(params, status=status.HTTP_200_OK)
+        from videos.cloudinary_service import generate_signed_upload_params
+        import uuid
 
+        params = generate_signed_upload_params()
+
+        # Add unique upload ID for chunked uploads
+        params['unique_upload_id'] = uuid.uuid4().hex
+        params['chunk_size'] = 10 * 1024 * 1024  # 10MB chunks
+
+        return Response(params)
 
 class VideoFromCloudinaryView(APIView):
     """
