@@ -5,6 +5,7 @@ from videos.views import (
     PublishVideoView, ArchiveVideoView,
     CategoryListView, TagListView,
 )
+from videos.views import SaveDraftView, UpdateDraftView
 
 urlpatterns = [
     # Upload
@@ -26,4 +27,8 @@ urlpatterns = [
     # Categories & Tags
     path('categories/', CategoryListView.as_view()), # Fetch all categories
     path('tags/', TagListView.as_view()), # Fetch all tags
+
+    # Draft videos
+    path('videos/draft/', SaveDraftView.as_view()),                    # POST
+    path('videos/draft/<uuid:video_id>/', UpdateDraftView.as_view()),
 ]

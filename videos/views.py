@@ -483,3 +483,94 @@ class TagListView(APIView):
     def get(self, request):
         tags = Tag.objects.all().order_by('-usage_count')
         return Response(TagSerializer(tags, many=True).data)
+    
+
+class SaveDraftView(APIView):
+    """
+    Save video metadata as draft before or without uploading.
+    Frontend calls this when user fills form but hasn't uploaded yet.
+
+    POST /api/v1/videos/draft/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        title = request.data.get('title', '')
+        if not title:
+            return Response(
+                {'detail': 'Title is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        video = Video.objects.create(
+            creator=request.user,
+            title=title,
+            description=request.data.get('description', ''),
+            category_id=request.data.get('category'),
+            visibility=request.data.get('visibility', 'private'),
+            is_monetized=request.data.get('is_monetized', False),
+            status=Video.Status.DRAFT,
+            # Cloudinary fields empty for now
+            cloudinary_public_id=f'draft_{request.user.id}_{uuid.uuid4().hex}',
+            cloudinary_url='',
+        )
+
+        return Response(
+            VideoSerializer(video).data,
+            status=status.HTTP_201_CREATED
+        )
+
+
+class UpdateDraftView(APIView):
+    """
+    Update draft with Cloudinary data after video is uploaded.
+    Called after frontend finishes chunked upload to Cloudinary.
+
+    PATCH /api/v1/videos/draft/<video_id>/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, video_id):
+        video = get_object_or_404(
+            Video, id=video_id, creator=request.user
+        )
+
+        if video.status not in [Video.Status.DRAFT, Video.Status.PROCESSING]:
+            return Response(
+                {'detail': 'Only draft or processing videos can be updated.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Update fields
+        updatable_fields = [
+            'title', 'description', 'visibility',
+            'is_monetized', 'revenue_share_percent',
+        ]
+        cloudinary_fields = [
+            'cloudinary_public_id', 'cloudinary_url',
+            'cloudinary_thumbnail_url', 'cloudinary_resource_type',
+            'duration_seconds', 'width', 'height',
+            'format', 'file_size', 'bitrate',
+        ]
+
+        for field in updatable_fields + cloudinary_fields:
+            if field in request.data:
+                setattr(video, field, request.data[field])
+
+        if request.data.get('category'):
+            video.category_id = request.data['category']
+
+        # Update status to processing when video is added
+        if 'cloudinary_url' in request.data and request.data['cloudinary_url']:
+            video.status = Video.Status.PROCESSING
+
+        video.save()
+
+        # Update tags if provided
+        tag_ids = request.data.get('tag_ids', [])
+        if tag_ids:
+            detach_tags(video)
+            attach_tags(video, tag_ids)
+
+        video.refresh_from_db()
+        return Response(VideoSerializer(video).data)
