@@ -580,17 +580,32 @@ class CloudinaryWebhookView(APIView):
     permission_classes = [AllowAny]  # Cloudinary calls this
 
     def post(self, request):
-        # Verify it's really from Cloudinary
         notification_type = request.data.get('notification_type')
         public_id = request.data.get('public_id')
+        status_field = request.data.get('status')
 
-        if notification_type == 'eager':
-            # Video finished processing
-            Video.objects.filter(
-                cloudinary_public_id=public_id,
-                status=Video.Status.PROCESSING
-            ).update(status=Video.Status.READY)
+        # Handle both upload and eager notification types
+        if notification_type in ['eager', 'upload']:
 
-            return Response({'detail': 'Status updated to ready.'})
+            # Only update if Cloudinary says it's complete
+            if status_field in ['complete', None]:
+                updated = Video.objects.filter(
+                    cloudinary_public_id=public_id,
+                    status=Video.Status.PROCESSING
+                ).update(status=Video.Status.READY)
+
+                if updated:
+                    return Response({'detail': 'Status updated to ready.'})
+                else:
+                    return Response({'detail': 'No matching video found.'})
+
+            # Handle failed processing
+            elif status_field == 'failed':
+                Video.objects.filter(
+                    cloudinary_public_id=public_id,
+                    status=Video.Status.PROCESSING
+                ).update(status=Video.Status.FAILED)
+
+                return Response({'detail': 'Status updated to failed.'})
 
         return Response({'detail': 'Ignored.'})
