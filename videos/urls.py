@@ -5,7 +5,7 @@ from videos.views import (
     PublishVideoView, ArchiveVideoView,
     CategoryListView, TagListView,
 )
-from videos.views import SaveDraftView, UpdateDraftView
+from videos.views import SaveDraftView, UpdateDraftView, CloudinaryWebhookView
 
 urlpatterns = [
     # Upload
@@ -31,4 +31,7 @@ urlpatterns = [
     # Draft videos
     path('videos/draft/', SaveDraftView.as_view()),                    # POST
     path('videos/draft/<uuid:video_id>/', UpdateDraftView.as_view()),
+
+    # cloundinaryWebhook
+    path('videos/webhook/cloudinary/', CloudinaryWebhookView.as_view()),
 ]

@@ -574,3 +574,23 @@ class UpdateDraftView(APIView):
 
         video.refresh_from_db()
         return Response(VideoSerializer(video).data)
+    
+
+class CloudinaryWebhookView(APIView):
+    permission_classes = [AllowAny]  # Cloudinary calls this
+
+    def post(self, request):
+        # Verify it's really from Cloudinary
+        notification_type = request.data.get('notification_type')
+        public_id = request.data.get('public_id')
+
+        if notification_type == 'eager':
+            # Video finished processing
+            Video.objects.filter(
+                cloudinary_public_id=public_id,
+                status=Video.Status.PROCESSING
+            ).update(status=Video.Status.READY)
+
+            return Response({'detail': 'Status updated to ready.'})
+
+        return Response({'detail': 'Ignored.'})
