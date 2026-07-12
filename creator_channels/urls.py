@@ -1,7 +1,7 @@
 # channels/urls.py
 from django.urls import path
-from channels.views import CreateChannelView, MyChannelView, DeleteChannelView, PublicChannelView, ChannelVideosView, ChannelListView
-from channels.views import CreatorDashboardView, CreatorAnalyticsView, VideoAnalyticsView, ContentListView
+from creator_channels.views import CreateChannelView, MyChannelView, DeleteChannelView, PublicChannelView, ChannelVideosView, ChannelListView
+from creator_channels.views import CreatorDashboardView, CreatorAnalyticsView, VideoAnalyticsView, ContentListView
 
 
 

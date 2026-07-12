@@ -57,6 +57,7 @@ if not DEBUG:
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',  # ← add (replaces gunicorn for ASGI)
     'corsheaders',
     # 'django.contrib.admin',
     # 'django.contrib.sessions',
@@ -66,6 +67,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     # allauth
+    
+    'channels',
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
@@ -80,15 +83,20 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
-     'cloudinary',
+    'cloudinary',
+       
+        
 
     # Third party apps
     'accounts',
     'profiles',
     'videos',
     'playback',
-    'channels',
-    'interactions'
+    'creator_channels',
+    'interactions',
+    'subscriptions',
+    'notifications',
+    'realtime',
     # 'analytics',
 
 ]
@@ -245,11 +253,14 @@ SIMPLE_JWT = {
 }
 
 # allauth settings
+
+# ACCOUNT_EMAIL_REQUIRED = True
+# ACCOUNT_USERNAME_REQUIRED = False
+# ACCOUNT_AUTHENTICATION_METHOD = 'email'
 SITE_ID = 1
-ACCOUNT_EMAIL_REQUIRED = True
-ACCOUNT_USERNAME_REQUIRED = False
-ACCOUNT_AUTHENTICATION_METHOD = 'email'
-ACCOUNT_EMAIL_VERIFICATION = 'none'  # we handle verification ourselves
+ACCOUNT_LOGIN_METHODS = {'email'}
+ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']
+ACCOUNT_EMAIL_VERIFICATION = 'none'     # we handle verification ourselves
 
 GOOGLE_CLIENT_ID = config('GOOGLE_CLIENT_ID')
 GOOGLE_CLIENT_SECRET = config('GOOGLE_CLIENT_SECRET')
@@ -265,6 +276,17 @@ SOCIALACCOUNT_PROVIDERS = {
             'key': ''
         }
     }
+}
+
+ASGI_APPLICATION = 'abiastream.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            'hosts': [config('REDIS_URL', default='redis://localhost:6379')],
+        },
+    },
 }
 
 # Alternative — no extra table created

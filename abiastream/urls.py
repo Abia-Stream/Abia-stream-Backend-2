@@ -7,9 +7,10 @@ urlpatterns = [
     path('api/v1/', include('profiles.urls')),
     path('api/v1/', include('videos.urls')),
     path('api/v1/', include('playback.urls')),
-    path('api/v1/', include('channels.urls')),
+    path('api/v1/', include('creator_channels.urls')),
     path('api/v1/', include('interactions.urls')),
-    # path('api/v1/', include('subscriptions.urls')),
+    path('api/v1/', include('subscriptions.urls')),
+    path('api/v1/', include('notifications.urls')),
 
     # API Docs
     path('api/docs/schema/', SpectacularAPIView.as_view(), name='schema'),

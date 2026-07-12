@@ -12,8 +12,8 @@ from datetime import timedelta
 from abiastream.pagination import StandardPagination
 from videos.models import Video
 from playback.models import ViewLog, WatchHistory
-from channels.models import CreatorChannel
-from channels.serializers import (
+from creator_channels.models import CreatorChannel
+from creator_channels.serializers import (
     CreatorChannelSerializer,
     CreateChannelSerializer,
     UpdateChannelSerializer,

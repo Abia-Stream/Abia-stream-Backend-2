@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from channels.models import CreatorChannel
+from creator_channels.models import CreatorChannel
 from django.utils.text import slugify
 import re
 

@@ -83,8 +83,9 @@ def detach_tags(video):
         )
 
 
+
+
 def is_video_accessible(video, user):
-    """Check if a user can view a video based on visibility."""
     if video.visibility == Video.Visibility.PUBLIC:
         return True
     if video.visibility == Video.Visibility.UNLISTED:
@@ -96,8 +97,16 @@ def is_video_accessible(video, user):
     if video.visibility == Video.Visibility.PRIVATE:
         return False
     if video.visibility == Video.Visibility.SUBSCRIBERS_ONLY:
-        # TODO: check subscription when Subscription Service is built
-        return False
+        # Check if user is subscribed to the creator's channel
+        from subscriptions.models import Subscription
+        try:
+            channel = video.creator.channel
+            return Subscription.objects.filter(
+                subscriber=user,
+                channel=channel
+            ).exists()
+        except Exception:
+            return False
     return False
 
 
@@ -574,38 +583,61 @@ class UpdateDraftView(APIView):
 
         video.refresh_from_db()
         return Response(VideoSerializer(video).data)
-    
+
 
 class CloudinaryWebhookView(APIView):
-    permission_classes = [AllowAny]  # Cloudinary calls this
+    permission_classes = [AllowAny]
 
     def post(self, request):
         notification_type = request.data.get('notification_type')
         public_id = request.data.get('public_id')
         status_field = request.data.get('status')
 
-        # Handle both upload and eager notification types
         if notification_type in ['eager', 'upload']:
-
-            # Only update if Cloudinary says it's complete
             if status_field in ['complete', None]:
-                updated = Video.objects.filter(
+                videos = Video.objects.filter(
                     cloudinary_public_id=public_id,
                     status=Video.Status.PROCESSING
-                ).update(status=Video.Status.READY)
+                )
 
-                if updated:
+                if videos.exists():
+                    video = videos.first()
+                    videos.update(status=Video.Status.READY)
+
+                    # ── Broadcast status change in real-time ──────────────
+                    from realtime.broadcaster import (
+                        broadcast_video_status,
+                        broadcast_notification_to_user
+                    )
+                    broadcast_video_status(video.id, 'ready')
+                    broadcast_notification_to_user(
+                        video.creator_id, video.id, 'ready'
+                    )
+
+                    # ── Notify creator ────────────────────────────────────
+                    from notifications.utils import create_notification
+                    create_notification(
+                        user=video.creator,
+                        notification_type='video_ready',
+                        title='Video Ready',
+                        message=f'Your video "{video.title}" is ready to publish.',
+                        data={'video_id': str(video.id)}
+                    )
+
                     return Response({'detail': 'Status updated to ready.'})
-                else:
-                    return Response({'detail': 'No matching video found.'})
 
-            # Handle failed processing
             elif status_field == 'failed':
-                Video.objects.filter(
+                videos = Video.objects.filter(
                     cloudinary_public_id=public_id,
                     status=Video.Status.PROCESSING
-                ).update(status=Video.Status.FAILED)
+                )
+                if videos.exists():
+                    video = videos.first()
+                    videos.update(status=Video.Status.FAILED)
 
-                return Response({'detail': 'Status updated to failed.'})
+                    from realtime.broadcaster import broadcast_video_status
+                    broadcast_video_status(video.id, 'failed')
+
+                    return Response({'detail': 'Status updated to failed.'})
 
         return Response({'detail': 'Ignored.'})
