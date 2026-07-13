@@ -1,15 +1,8 @@
-import uuid
-from django.utils import timezone
-
-
+# notifications/utils.py
 def create_notification(user, notification_type, title, message, data=None):
-    """
-    Central helper to create notifications from any app.
-    Used by subscriptions, interactions, videos etc.
-    """
     from notifications.models import Notification
     try:
-        Notification.objects.create(
+        notification = Notification.objects.create(
             user=user,
             notification_type=notification_type,
             title=title,
@@ -18,6 +11,18 @@ def create_notification(user, notification_type, title, message, data=None):
             is_read=False,
             is_archived=False,
         )
+
+        # ── Broadcast in real-time ────────────────────────────────────────
+        from realtime.broadcaster import broadcast_notification
+        broadcast_notification(str(user.id), {
+            'id': str(notification.id),
+            'notification_type': notification_type,
+            'title': title,
+            'message': message,
+            'data': data or {},
+            'is_read': False,
+            'created_at': notification.created_at.isoformat(),
+        })
+
     except Exception as e:
-        print(f'Notification creation failed: {e}')
-        # Never crash the main flow because of a notification failure
+        print(f'Notification error: {e}')
