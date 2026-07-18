@@ -89,13 +89,21 @@ class NotificationConsumer(AsyncWebsocketConsumer):
 class VideoStatusConsumer(AsyncWebsocketConsumer):
     """
     WebSocket for real-time video status updates.
-    Frontend connects to: ws://domain/ws/video/<video_id>/?token=<access_token>
+    Frontend connects to: wss://domain/ws/video/<video_id>/?token=<access_token>
     """
 
     async def connect(self):
+        user = self.scope['user']
+
+        # Check authentication first
+        if user.is_anonymous:
+            await self.close(code=4001)
+            return
+
         self.video_id = str(self.scope['url_route']['kwargs']['video_id'])
         self.group_name = f'video_{self.video_id}'
 
+        # Join group
         await self.channel_layer.group_add(
             self.group_name,
             self.channel_name
@@ -103,12 +111,38 @@ class VideoStatusConsumer(AsyncWebsocketConsumer):
         await self.accept()
 
         # Send current status on connect
-        status = await self.get_video_status()
+        current_status = await self.get_video_status()
         await self.send(text_data=json.dumps({
             'type': 'video_status',
             'video_id': self.video_id,
-            'status': status,
+            'status': current_status,
         }))
+
+    async def disconnect(self, close_code):
+        if hasattr(self, 'group_name'):
+            await self.channel_layer.group_discard(
+                self.group_name,
+                self.channel_name
+            )
+
+    async def receive(self, text_data):
+        pass  # read-only consumer
+
+    async def video_status_changed(self, event):
+        """Called when video status changes."""
+        await self.send(text_data=json.dumps({
+            'type': 'video_status',
+            'video_id': event['video_id'],
+            'status': event['status'],
+        }))
+
+    @database_sync_to_async
+    def get_video_status(self):
+        from videos.models import Video
+        try:
+            return Video.objects.get(id=self.video_id).status
+        except Video.DoesNotExist:
+            return None
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(
