@@ -254,14 +254,16 @@ def upload_image_to_cloudinary(file, folder='abia_stream/avatars'):
 
 
 def generate_signed_image_upload_params(folder='abia_stream/avatars'):
-    """Signed params for direct frontend image upload."""
     import time
     import cloudinary.utils
 
     timestamp = int(time.time())
+
+    # resource_type must be included in signature
     params_to_sign = {
         'folder': folder,
         'timestamp': timestamp,
+        'resource_type': 'image',  # ← add this
     }
 
     signature = cloudinary.utils.api_sign_request(
