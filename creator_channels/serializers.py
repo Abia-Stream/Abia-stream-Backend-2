@@ -23,20 +23,19 @@ class CreatorChannelSerializer(serializers.ModelSerializer):
             'total_videos', 'is_verified', 'created_at', 'updated_at',
         ]
 
+
 class CreateChannelSerializer(serializers.ModelSerializer):
     class Meta:
         model = CreatorChannel
         fields = ['channel_name', 'channel_description', 'banner_url', 'custom_thumbnail_url']
-        # extra_kwargs = {
-        #     'banner_url': {'required': False, 'allow_blank': True, 'allow_null': True},
-        #     'custom_thumbnail_url': {'required': False, 'allow_blank': True, 'allow_null': True},
-        # }
 
     def validate_channel_name(self, value):
+        # Only allow letters, numbers, spaces, hyphens, underscores
         if not re.match(r'^[\w\s\-]+$', value):
             raise serializers.ValidationError(
                 'Channel name can only contain letters, numbers, spaces, hyphens and underscores.'
             )
+        # Check uniqueness
         slug = slugify(value)
         if CreatorChannel.objects.filter(channel_slug=slug).exists():
             raise serializers.ValidationError(
@@ -52,12 +51,6 @@ class UpdateChannelSerializer(serializers.ModelSerializer):
             'channel_name', 'channel_description',
             'banner_url', 'custom_thumbnail_url',
         ]
-        extra_kwargs = {
-            'channel_name': {'required': False},
-            'channel_description': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'banner_url': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'custom_thumbnail_url': {'required': False, 'allow_blank': True, 'allow_null': True},
-        }
 
     def validate_channel_name(self, value):
         if not re.match(r'^[\w\s\-]+$', value):
@@ -65,6 +58,7 @@ class UpdateChannelSerializer(serializers.ModelSerializer):
                 'Channel name can only contain letters, numbers, spaces, hyphens and underscores.'
             )
         slug = slugify(value)
+        # Check uniqueness excluding current channel
         if CreatorChannel.objects.filter(
             channel_slug=slug
         ).exclude(id=self.instance.id).exists():
