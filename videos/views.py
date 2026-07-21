@@ -180,13 +180,14 @@ class SignedUploadParamsView(APIView):
 
     def get(self, request):
         from videos.cloudinary_service import generate_signed_upload_params
-        import uuid
+        import uuid as uuid_lib
 
         params = generate_signed_upload_params()
 
         # Add unique upload ID for chunked uploads
-        params['unique_upload_id'] = uuid.uuid4().hex
-        params['chunk_size'] = 10 * 1024 * 1024  # 10MB chunks
+        params['unique_upload_id'] = uuid_lib.uuid4().hex
+        params['chunk_size'] = 10 * 1024 * 1024  # 10MB per chunk
+        params['max_file_size'] = 1 * 1024 * 1024 * 1024  # 1GB
 
         return Response(params)
 
