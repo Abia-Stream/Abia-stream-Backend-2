@@ -642,3 +642,94 @@ class CloudinaryWebhookView(APIView):
                     return Response({'detail': 'Status updated to failed.'})
 
         return Response({'detail': 'Ignored.'})
+    
+
+
+from videos.file_security import validate_image_file
+from videos.cloudinary_service import (
+    upload_image_to_cloudinary,
+    generate_signed_image_upload_params,
+)
+
+
+class VideoThumbnailUploadView(APIView):
+    """
+    Server-side video thumbnail upload.
+    POST /api/v1/videos/<video_id>/thumbnail/
+    Field: thumbnail (File)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, video_id):
+        video = get_object_or_404(Video, id=video_id, creator=request.user)
+
+        thumbnail_file = request.FILES.get('thumbnail')
+        if not thumbnail_file:
+            return Response(
+                {'detail': 'No file provided. Use field name: thumbnail'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            file_info = validate_image_file(thumbnail_file)
+        except Exception as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        thumbnail_file.name = file_info['safe_name']
+
+        try:
+            result = upload_image_to_cloudinary(
+                thumbnail_file, folder='abia_stream/thumbnails'
+            )
+        except Exception as e:
+            return Response(
+                {'detail': f'Upload failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        video.cloudinary_thumbnail_url = result['secure_url']
+        video.save(update_fields=['cloudinary_thumbnail_url'])
+
+        return Response({
+            'detail': 'Video thumbnail updated successfully.',
+            'thumbnail_url': result['secure_url'],
+        })
+
+
+class VideoThumbnailSignedParamsView(APIView):
+    """
+    GET /api/v1/videos/<video_id>/thumbnail/signed-params/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, video_id):
+        get_object_or_404(Video, id=video_id, creator=request.user)
+        params = generate_signed_image_upload_params(
+            folder='abia_stream/thumbnails'
+        )
+        return Response(params)
+
+
+class UpdateVideoThumbnailFromCloudinaryView(APIView):
+    """
+    POST /api/v1/videos/<video_id>/thumbnail/from-cloudinary/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, video_id):
+        video = get_object_or_404(Video, id=video_id, creator=request.user)
+
+        thumbnail_url = request.data.get('thumbnail_url')
+        if not thumbnail_url:
+            return Response(
+                {'detail': 'thumbnail_url is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        video.cloudinary_thumbnail_url = thumbnail_url
+        video.save(update_fields=['cloudinary_thumbnail_url'])
+
+        return Response({
+            'detail': 'Video thumbnail updated successfully.',
+            'thumbnail_url': thumbnail_url,
+        })

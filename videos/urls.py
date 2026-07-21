@@ -5,7 +5,7 @@ from videos.views import (
     PublishVideoView, ArchiveVideoView,
     CategoryListView, TagListView,
 )
-from videos.views import SaveDraftView, UpdateDraftView, CloudinaryWebhookView
+from videos.views import SaveDraftView, UpdateDraftView, CloudinaryWebhookView, VideoThumbnailSignedParamsView, VideoThumbnailUploadView, UpdateVideoThumbnailFromCloudinaryView
 
 urlpatterns = [
     # Upload
@@ -34,4 +34,9 @@ urlpatterns = [
 
     # cloundinaryWebhook
     path('videos/webhook/cloudinary/', CloudinaryWebhookView.as_view()),
+
+    # Video thumbnail
+    path('videos/<uuid:video_id>/thumbnail/', VideoThumbnailUploadView.as_view()),
+    path('videos/<uuid:video_id>/thumbnail/signed-params/', VideoThumbnailSignedParamsView.as_view()),
+    path('videos/<uuid:video_id>/thumbnail/from-cloudinary/', UpdateVideoThumbnailFromCloudinaryView.as_view()),
 ]

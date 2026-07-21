@@ -449,3 +449,174 @@ class ContentListView(APIView):
         ]
 
         return Response(data)
+    
+    
+from videos.file_security import validate_image_file
+from videos.cloudinary_service import (
+    upload_image_to_cloudinary,
+    generate_signed_image_upload_params,
+)
+
+
+class ChannelBannerUploadView(APIView):
+    """
+    Server-side channel banner upload.
+    POST /api/v1/channels/me/banner/
+    Field: banner (File)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        channel = get_object_or_404(CreatorChannel, user=request.user)
+
+        banner_file = request.FILES.get('banner')
+        if not banner_file:
+            return Response(
+                {'detail': 'No file provided. Use field name: banner'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            file_info = validate_image_file(banner_file)
+        except Exception as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        banner_file.name = file_info['safe_name']
+
+        try:
+            result = upload_image_to_cloudinary(
+                banner_file, folder='abia_stream/channel_banners'
+            )
+        except Exception as e:
+            return Response(
+                {'detail': f'Upload failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        channel.banner_url = result['secure_url']
+        channel.save(update_fields=['banner_url'])
+
+        return Response({
+            'detail': 'Channel banner updated successfully.',
+            'banner_url': result['secure_url'],
+        })
+
+
+class ChannelBannerSignedParamsView(APIView):
+    """
+    GET /api/v1/channels/me/banner/signed-params/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        params = generate_signed_image_upload_params(
+            folder='abia_stream/channel_banners'
+        )
+        return Response(params)
+
+
+class UpdateChannelBannerFromCloudinaryView(APIView):
+    """
+    POST /api/v1/channels/me/banner/from-cloudinary/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        channel = get_object_or_404(CreatorChannel, user=request.user)
+
+        banner_url = request.data.get('banner_url')
+        if not banner_url:
+            return Response(
+                {'detail': 'banner_url is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        channel.banner_url = banner_url
+        channel.save(update_fields=['banner_url'])
+
+        return Response({
+            'detail': 'Channel banner updated successfully.',
+            'banner_url': banner_url,
+        })
+
+
+class ChannelThumbnailUploadView(APIView):
+    """
+    Server-side channel thumbnail upload.
+    POST /api/v1/channels/me/thumbnail/
+    Field: thumbnail (File)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        channel = get_object_or_404(CreatorChannel, user=request.user)
+
+        thumbnail_file = request.FILES.get('thumbnail')
+        if not thumbnail_file:
+            return Response(
+                {'detail': 'No file provided. Use field name: thumbnail'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            file_info = validate_image_file(thumbnail_file)
+        except Exception as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        thumbnail_file.name = file_info['safe_name']
+
+        try:
+            result = upload_image_to_cloudinary(
+                thumbnail_file, folder='abia_stream/channel_thumbnails'
+            )
+        except Exception as e:
+            return Response(
+                {'detail': f'Upload failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        channel.custom_thumbnail_url = result['secure_url']
+        channel.save(update_fields=['custom_thumbnail_url'])
+
+        return Response({
+            'detail': 'Channel thumbnail updated successfully.',
+            'custom_thumbnail_url': result['secure_url'],
+        })
+
+
+class ChannelThumbnailSignedParamsView(APIView):
+    """
+    GET /api/v1/channels/me/thumbnail/signed-params/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        params = generate_signed_image_upload_params(
+            folder='abia_stream/channel_thumbnails'
+        )
+        return Response(params)
+
+
+class UpdateChannelThumbnailFromCloudinaryView(APIView):
+    """
+    POST /api/v1/channels/me/thumbnail/from-cloudinary/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        channel = get_object_or_404(CreatorChannel, user=request.user)
+
+        thumbnail_url = request.data.get('custom_thumbnail_url')
+        if not thumbnail_url:
+            return Response(
+                {'detail': 'custom_thumbnail_url is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        channel.custom_thumbnail_url = thumbnail_url
+        channel.save(update_fields=['custom_thumbnail_url'])
+
+        return Response({
+            'detail': 'Channel thumbnail updated successfully.',
+            'custom_thumbnail_url': thumbnail_url,
+        })
