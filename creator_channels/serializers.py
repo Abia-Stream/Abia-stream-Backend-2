@@ -27,10 +27,10 @@ class CreateChannelSerializer(serializers.ModelSerializer):
     class Meta:
         model = CreatorChannel
         fields = ['channel_name', 'channel_description', 'banner_url', 'custom_thumbnail_url']
-        extra_kwargs = {
-            'banner_url': {'required': False, 'allow_blank': True, 'allow_null': True},
-            'custom_thumbnail_url': {'required': False, 'allow_blank': True, 'allow_null': True},
-        }
+        # extra_kwargs = {
+        #     'banner_url': {'required': False, 'allow_blank': True, 'allow_null': True},
+        #     'custom_thumbnail_url': {'required': False, 'allow_blank': True, 'allow_null': True},
+        # }
 
     def validate_channel_name(self, value):
         if not re.match(r'^[\w\s\-]+$', value):
