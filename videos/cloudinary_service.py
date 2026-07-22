@@ -323,3 +323,44 @@ def generate_signed_image_upload_params(folder='abia_stream/channel_banner'):
         'resource_type': 'image',
         'upload_url': f'https://api.cloudinary.com/v1_1/{settings.CLOUDINARY_CLOUD_NAME}/image/upload',
     }
+def upload_image_to_cloudinary(file, folder='abia_stream/channel_thumbnail'):
+    """Upload image (avatar/banner) to Cloudinary."""
+    result = cloudinary.uploader.upload(
+        file,
+        resource_type='image',
+        folder=folder,
+        transformation=[
+            {'quality': 'auto', 'fetch_format': 'auto'},
+        ],
+        overwrite=True,
+    )
+    return result
+
+
+def generate_signed_image_upload_params(folder='abia_stream/channel_thumbnail'):
+    import time
+    import cloudinary.utils
+
+    timestamp = int(time.time())
+
+    # resource_type must be included in signature
+    params_to_sign = {
+        'folder': folder,
+        'timestamp': timestamp,
+        'resource_type': 'image',  # ← add this
+    }
+
+    signature = cloudinary.utils.api_sign_request(
+        params_to_sign,
+        settings.CLOUDINARY_API_SECRET
+    )
+
+    return {
+        'timestamp': timestamp,
+        'signature': signature,
+        'api_key': settings.CLOUDINARY_API_KEY,
+        'cloud_name': settings.CLOUDINARY_CLOUD_NAME,
+        'folder': folder,
+        'resource_type': 'image',
+        'upload_url': f'https://api.cloudinary.com/v1_1/{settings.CLOUDINARY_CLOUD_NAME}/image/upload',
+    }
