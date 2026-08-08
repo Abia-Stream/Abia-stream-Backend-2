@@ -205,7 +205,8 @@ AUTH_USER_MODEL = 'accounts.User'
 
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',      # frontend local dev
-    'http://127.0.0.1:3000',     # frontend local dev alternative
+    'http://127.0.0.1:3000',  
+    'https://abia-stream.vercel.app',   # frontend local dev alternative
 ]
 
 # Allow credentials (needed for JWT in headers)
