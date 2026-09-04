@@ -34,6 +34,22 @@ class User(AbstractBaseUser):
         SUSPENDED = 'suspended', 'Suspended'
         BANNED = 'banned', 'Banned'
         PENDING_VERIFICATION = 'pending_verification', 'Pending Verification'
+    class VerificationStatus(models.TextChoices):
+        NOT_SUBMITTED = 'not_submitted', 'Not Submitted'
+        PENDING = 'pending', 'Pending'
+        APPROVED = 'approved', 'Approved'
+        REJECTED = 'rejected', 'Rejected'
+
+    verification_status = models.CharField(
+        max_length=20,
+        choices=VerificationStatus.choices,
+        default=VerificationStatus.NOT_SUBMITTED,
+        null=True,
+        blank=True
+    )
+    verification_job_id = models.CharField(max_length=255, null=True, blank=True)
+    id_document_url = models.CharField(max_length=500, null=True, blank=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True)

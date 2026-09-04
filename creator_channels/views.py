@@ -52,6 +52,16 @@ class CreateChannelView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        if request.user.verification_status != 'approved':
+            return Response(
+                {
+                    'detail': 'Identity verification required before creating a channel.',
+                    'verification_status': request.user.verification_status,
+                    'action': 'Please submit your ID at POST /api/v1/verification/submit/'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
         if CreatorChannel.objects.filter(user=request.user).exists():
             return Response(
                 {'detail': 'You already have a channel.'},
@@ -620,3 +630,4 @@ class UpdateChannelThumbnailFromCloudinaryView(APIView):
             'detail': 'Channel thumbnail updated successfully.',
             'custom_thumbnail_url': thumbnail_url,
         })
+

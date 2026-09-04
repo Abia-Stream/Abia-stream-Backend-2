@@ -97,6 +97,8 @@ INSTALLED_APPS = [
     'subscriptions',
     'notifications',
     'realtime',
+    'verification',
+    'comments',
     # 'analytics',
 
 ]
@@ -348,4 +350,6 @@ cloudinary.config(
     secure=True
 )
 
-
+# SMILE_IDENTITY_PARTNER_ID = config('SMILE_IDENTITY_PARTNER_ID')
+# SMILE_IDENTITY_API_KEY = config('SMILE_IDENTITY_API_KEY')
+# SMILE_IDENTITY_ENVIRONMENT = config('SMILE_IDENTITY_ENVIRONMENT', default='sandbox')
