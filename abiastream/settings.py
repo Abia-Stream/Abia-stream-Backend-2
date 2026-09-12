@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.postgres',  # required for full-text search (videos/search)
 
     # allauth
     
@@ -99,6 +100,9 @@ INSTALLED_APPS = [
     'realtime',
     'verification',
     'comments',
+    'events',
+    'recommendations',
+    'experiments',
     # 'analytics',
 
 ]
@@ -236,6 +240,19 @@ REST_FRAMEWORK = {
     # ── Pagination ────────────────────────────────────────────────────────
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 8,  # ← 8 per page as team lead specified
+
+    # ── Throttling ────────────────────────────────────────────────────────
+    # Scoped rather than global: the events endpoint is an open, unauthenticated
+    # write endpoint and needs a ceiling, but video endpoints should not inherit
+    # a limit tuned for telemetry.
+    'DEFAULT_THROTTLE_CLASSES': (
+        'rest_framework.throttling.ScopedRateThrottle',
+    ),
+    'DEFAULT_THROTTLE_RATES': {
+        # Each request carries up to 100 events, so this is generous for a real
+        # client and still caps a script.
+        'events': '120/min',
+    },
 }
 SPECTACULAR_SETTINGS = {
     'TITLE': 'ABIA STREAM API',
@@ -282,6 +299,22 @@ SOCIALACCOUNT_PROVIDERS = {
 }
 
 ASGI_APPLICATION = 'abiastream.asgi.application'
+
+# DRF throttling stores its counters here. Without a shared backend it falls
+# back to per-process local memory, which means the rate limit is enforced
+# per Gunicorn worker rather than per deployment.
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': config('REDIS_URL', default='redis://localhost:6379/1'),
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            # A cache outage must not take the API down with it.
+            'IGNORE_EXCEPTIONS': True,
+        },
+    }
+}
+DJANGO_REDIS_IGNORE_EXCEPTIONS = True
 
 CHANNEL_LAYERS = {
     'default': {

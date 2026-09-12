@@ -1,6 +1,7 @@
 import uuid
 from django.db import models
 from django.conf import settings
+from django.contrib.postgres.search import SearchVectorField
 
 
 class Category(models.Model):
@@ -113,6 +114,10 @@ class Video(models.Model):
     published_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
+
+    # Generated column maintained by Postgres (see sql/002_video_search.sql).
+    # Never written from Django.
+    search_vector = SearchVectorField(null=True, editable=False)
 
     class Meta:
         managed = False

@@ -9,8 +9,14 @@ from django.utils import timezone
 from videos.file_security import validate_video_file
 from abiastream.pagination import StandardPagination
 from videos.models import Video, Category, Tag, VideoTag
-from django.db.models import F
+from datetime import timedelta
+from django.db.models import F, Q, Count, Sum, Value
+from django.db.models.functions import Coalesce, Ln
+from django.contrib.postgres.search import SearchQuery, SearchRank
 from django.db import connection, models
+from playback.models import ViewLog
+from events.models import Event
+from events.utils import log_event
 from videos.serializers import (
     VideoUploadSerializer, VideoFromCloudinarySerializer,
     VideoSerializer, VideoUpdateSerializer,
@@ -24,6 +30,15 @@ from videos.cloudinary_service import (
 )
 
 UPLOAD_ROLES = ['viewer', 'creator', 'admin']
+
+# Search ranking weights. Relevance dominates; popularity only breaks ties.
+# Tune against SEARCH_RESULT_CLICK events once they exist.
+SEARCH_WEIGHT_RELEVANCE = 1.0
+SEARCH_WEIGHT_POPULARITY = 0.1
+
+# A completed view counts this many times a raw view when ranking trending.
+TRENDING_COMPLETION_WEIGHT = 3
+TRENDING_LIMIT = 50
 
 
 
@@ -733,3 +748,135 @@ class UpdateVideoThumbnailFromCloudinaryView(APIView):
             'detail': 'Video thumbnail updated successfully.',
             'thumbnail_url': thumbnail_url,
         })
+
+# ── Search ────────────────────────────────────────────────────────────────────
+
+class VideoSearchView(APIView):
+    """
+    Full-text search over published public videos.
+
+    GET /api/v1/videos/search/?q=<query>
+
+    Stage 0 behaviour is relevance-only ranking. The blended ranking below is
+    the Stage 3 upgrade: text relevance is still dominant, but views and
+    recency break ties among comparably-relevant results. Weights are module
+    constants so they can be tuned against real click data — they are guesses
+    until SEARCH_RESULT_CLICK events accumulate.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        query_text = (request.query_params.get('q') or '').strip()
+
+        if not query_text:
+            return Response(
+                {'detail': 'Query parameter "q" is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        search_query = SearchQuery(query_text, config='english')
+
+        queryset = (
+            Video.objects.filter(
+                status=Video.Status.PUBLISHED,
+                visibility=Video.Visibility.PUBLIC,
+            )
+            .filter(search_vector=search_query)
+            .annotate(
+                relevance=SearchRank(F('search_vector'), search_query),
+                # log-damped so a viral video cannot dominate every query
+                popularity=Ln(Coalesce(F('views_count'), Value(0)) + Value(1)),
+            )
+            .annotate(
+                score=(
+                    F('relevance') * Value(SEARCH_WEIGHT_RELEVANCE)
+                    + F('popularity') * Value(SEARCH_WEIGHT_POPULARITY)
+                )
+            )
+            .select_related('category', 'creator')
+            .prefetch_related('tags')
+            .order_by('-score', '-published_at')
+        )
+
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(queryset, request)
+        serializer = VideoSerializer(page, many=True)
+
+        # Logged server-side so the signal cannot be lost to a client that
+        # forgets to emit it. This is the training data for search ranking.
+        log_event(
+            request,
+            Event.Type.SEARCH,
+            payload={
+                'query': query_text,
+                'result_count': paginator.page.paginator.count,
+            },
+        )
+
+        return paginator.get_paginated_response(serializer.data)
+
+
+# ── Trending ──────────────────────────────────────────────────────────────────
+
+class TrendingVideosView(APIView):
+    """
+    Most-watched videos in a recent time window.
+
+    GET /api/v1/videos/trending/?days=7
+
+    Ranked by completions rather than raw view count. Raw views reward
+    clickbait; a view that was actually watched through is the stronger signal,
+    and both columns already exist on view_logs.
+
+    This runs as a live aggregate. It is the query most likely to need caching
+    as volume grows — it is written to be movable behind a scheduled job
+    without changing the response shape.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        try:
+            days = int(request.query_params.get('days', 7))
+        except (TypeError, ValueError):
+            days = 7
+        days = max(1, min(days, 90))
+
+        since = timezone.now() - timedelta(days=days)
+
+        recent = (
+            ViewLog.objects.filter(timestamp__gte=since)
+            .values('video_id')
+            .annotate(
+                views=Count('id'),
+                completions=Count('id', filter=Q(completed=True)),
+                watch_seconds=Coalesce(Sum('watch_duration_seconds'), Value(0)),
+            )
+        )
+
+        # Completion-weighted: a completed view counts for more than a bounce.
+        ranked = sorted(
+            recent,
+            key=lambda r: (
+                r['completions'] * TRENDING_COMPLETION_WEIGHT + r['views']
+            ),
+            reverse=True,
+        )[:TRENDING_LIMIT]
+
+        video_ids = [r['video_id'] for r in ranked]
+        if not video_ids:
+            return Response([])
+
+        videos = {
+            v.id: v
+            for v in Video.objects.filter(
+                id__in=video_ids,
+                status=Video.Status.PUBLISHED,
+                visibility=Video.Visibility.PUBLIC,
+            ).select_related('category', 'creator').prefetch_related('tags')
+        }
+
+        # Preserve ranking order; drop anything unpublished since it was watched.
+        ordered = [videos[vid] for vid in video_ids if vid in videos]
+
+        serializer = VideoSerializer(ordered, many=True)
+        return Response(serializer.data)
