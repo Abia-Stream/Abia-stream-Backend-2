@@ -4,11 +4,15 @@
 --   "no partition of relation view_logs found for row".
 -- This is why view_logs has zero rows.
 --
--- VERIFY THE PARTITION KEY BEFORE RUNNING:
---   select pg_get_expr(relpartbound, oid) from pg_class
---    where relname = 'view_logs_2026_01';
--- The bounds below assume monthly ranges on `timestamp`. If the existing
--- partition is shaped differently, adjust to match rather than running as-is.
+-- PARTITION SHAPE VERIFIED 2026-09-12, empirically via rolled-back inserts:
+--   partition key  = `timestamp` (pg_partitioned_table.partattrs = 12), RANGE
+--   2025-12-31T23:00Z  rejected
+--   2026-01-01T00:00Z  accepted
+--   2026-01-31T23:59Z  accepted
+--   2026-02-01T00:00Z  rejected
+--   2026-09-12T12:00Z  rejected  <- current traffic has nowhere to land
+-- So view_logs_2026_01 covers ['2026-01-01','2026-02-01') and the monthly
+-- bounds below line up with it exactly. Safe to run as written.
 
 create table if not exists view_logs_2026_02 partition of view_logs
     for values from ('2026-02-01') to ('2026-03-01');
