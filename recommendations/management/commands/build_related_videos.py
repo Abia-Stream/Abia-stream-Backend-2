@@ -111,7 +111,7 @@ class Command(BaseCommand):
         if written == 0:
             self.stdout.write(self.style.WARNING(
                 'No pairs met the threshold. Expected until watch history '
-                'accumulates — lower --min-co-views to inspect earlier.'
+                'accumulates - lower --min-co-views to inspect earlier.'
             ))
         else:
             self.stdout.write(self.style.SUCCESS(
