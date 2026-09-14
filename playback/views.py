@@ -14,7 +14,7 @@ from playback.serializers import (
 )
 from videos.models import Video
 from abiastream.pagination import StandardPagination
-
+from profiles.models import Profile
 
 
 def get_client_ip(request):
@@ -183,9 +183,12 @@ class RecordViewView(APIView):
             timestamp=timezone.now(),
         )
 
+        # Update creator's total views on their profile
+        Profile.objects.filter(user=video.creator).update(
+            total_views=F('total_views') + 1
+        )
+
         # Increment video view count
-
-
         Video.objects.filter(id=video.id).update(
             views_count=F('views_count') + 1
         )
