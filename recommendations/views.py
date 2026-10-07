@@ -3,6 +3,8 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from django.shortcuts import get_object_or_404
 
+from abiastream.pagination import StandardPagination
+from recommendations.feed import build_feed
 from recommendations.models import RelatedVideo
 from videos.models import Video
 from videos.serializers import VideoSerializer
@@ -45,3 +47,27 @@ class RelatedVideosView(APIView):
 
         ordered = [videos[vid] for vid in related_ids if vid in videos]
         return Response(VideoSerializer(ordered, many=True).data)
+
+
+class ForYouFeedView(APIView):
+    """
+    Personalized home feed. Works signed out too (trending + fresh only).
+
+    GET /api/v1/videos/feed/?page=1&page_size=8
+
+    Each item is a normal video object plus `feed_reason`, one of
+    related | subscription | category | trending | fresh — useful for UI copy
+    ("Because you watched…") and for attributing clicks in events.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        ranked = build_feed(request.user)
+
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(ranked, request)
+        videos = [video for video, _ in page]
+        data = VideoSerializer(videos, many=True, context={'request': request}).data
+        for item, (_, reason) in zip(data, page):
+            item['feed_reason'] = reason
+        return paginator.get_paginated_response(data)

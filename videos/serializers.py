@@ -80,15 +80,25 @@ class VideoFromCloudinarySerializer(serializers.ModelSerializer):
 
 
 class VideoSerializer(serializers.ModelSerializer):
+    """
+    URL fields come from videos.delivery:
+      - cloudinary_url / cloudinary_thumbnail_url are returned as stored for
+        public assets. For authenticated (non-public) assets they are signed
+        URLs, and only when context['request'].user may watch the video;
+        otherwise they are withheld (null).
+      - streaming_url is the adaptive-bitrate HLS (.m3u8) URL, signed the same way.
+    Views serializing non-public videos must pass context={'request': request}.
+    """
     tags = TagSerializer(many=True, read_only=True)
     category = CategorySerializer(read_only=True)
     creator_id = serializers.UUIDField(source='creator.id', read_only=True)
+    streaming_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Video
         fields = [
             'id', 'creator_id', 'title', 'description',
-            'cloudinary_url', 'cloudinary_thumbnail_url',
+            'cloudinary_url', 'cloudinary_thumbnail_url', 'streaming_url',
             'duration_seconds', 'width', 'height', 'format',
             'file_size', 'bitrate',
             'category', 'tags',
@@ -96,6 +106,31 @@ class VideoSerializer(serializers.ModelSerializer):
             'status', 'visibility', 'is_monetized', 'revenue_share_percent',
             'published_at', 'created_at', 'updated_at',
         ]
+
+    def _urls(self, video):
+        from videos.access import is_video_accessible
+        from videos.delivery import AUTHENTICATED, playback_urls, withheld_urls
+
+        cache = self.context.setdefault('_delivery_urls', {})
+        if video.pk not in cache:
+            if video.cloudinary_delivery_type == AUTHENTICATED:
+                request = self.context.get('request')
+                user = getattr(request, 'user', None)
+                allowed = user is not None and is_video_accessible(video, user)
+                cache[video.pk] = playback_urls(video) if allowed else withheld_urls(video)
+            else:
+                cache[video.pk] = playback_urls(video)
+        return cache[video.pk]
+
+    def get_streaming_url(self, video):
+        return self._urls(video)['streaming_url']
+
+    def to_representation(self, video):
+        data = super().to_representation(video)
+        urls = self._urls(video)
+        data['cloudinary_url'] = urls['cloudinary_url']
+        data['cloudinary_thumbnail_url'] = urls['cloudinary_thumbnail_url']
+        return data
 
 
 class VideoUpdateSerializer(serializers.ModelSerializer):

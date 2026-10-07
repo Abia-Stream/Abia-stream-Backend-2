@@ -13,29 +13,36 @@
 --   2026-09-12T12:00Z  rejected  <- current traffic has nowhere to land
 -- So view_logs_2026_01 covers ['2026-01-01','2026-02-01') and the monthly
 -- bounds below line up with it exactly. Safe to run as written.
+--
+-- Bounds carry an explicit +00 offset. A bare '2026-02-01' is read in the
+-- session's TimeZone, so from a non-UTC session (e.g. Africa/Lagos) it lands
+-- an hour early and overlaps view_logs_2026_01.
+--
+-- Partitions from 2027 onwards are created automatically by the
+-- `ensure_view_log_partitions` management command / Celery beat task.
 
 create table if not exists view_logs_2026_02 partition of view_logs
-    for values from ('2026-02-01') to ('2026-03-01');
+    for values from ('2026-02-01 00:00:00+00') to ('2026-03-01 00:00:00+00');
 create table if not exists view_logs_2026_03 partition of view_logs
-    for values from ('2026-03-01') to ('2026-04-01');
+    for values from ('2026-03-01 00:00:00+00') to ('2026-04-01 00:00:00+00');
 create table if not exists view_logs_2026_04 partition of view_logs
-    for values from ('2026-04-01') to ('2026-05-01');
+    for values from ('2026-04-01 00:00:00+00') to ('2026-05-01 00:00:00+00');
 create table if not exists view_logs_2026_05 partition of view_logs
-    for values from ('2026-05-01') to ('2026-06-01');
+    for values from ('2026-05-01 00:00:00+00') to ('2026-06-01 00:00:00+00');
 create table if not exists view_logs_2026_06 partition of view_logs
-    for values from ('2026-06-01') to ('2026-07-01');
+    for values from ('2026-06-01 00:00:00+00') to ('2026-07-01 00:00:00+00');
 create table if not exists view_logs_2026_07 partition of view_logs
-    for values from ('2026-07-01') to ('2026-08-01');
+    for values from ('2026-07-01 00:00:00+00') to ('2026-08-01 00:00:00+00');
 create table if not exists view_logs_2026_08 partition of view_logs
-    for values from ('2026-08-01') to ('2026-09-01');
+    for values from ('2026-08-01 00:00:00+00') to ('2026-09-01 00:00:00+00');
 create table if not exists view_logs_2026_09 partition of view_logs
-    for values from ('2026-09-01') to ('2026-10-01');
+    for values from ('2026-09-01 00:00:00+00') to ('2026-10-01 00:00:00+00');
 create table if not exists view_logs_2026_10 partition of view_logs
-    for values from ('2026-10-01') to ('2026-11-01');
+    for values from ('2026-10-01 00:00:00+00') to ('2026-11-01 00:00:00+00');
 create table if not exists view_logs_2026_11 partition of view_logs
-    for values from ('2026-11-01') to ('2026-12-01');
+    for values from ('2026-11-01 00:00:00+00') to ('2026-12-01 00:00:00+00');
 create table if not exists view_logs_2026_12 partition of view_logs
-    for values from ('2026-12-01') to ('2027-01-01');
+    for values from ('2026-12-01 00:00:00+00') to ('2027-01-01 00:00:00+00');
 
 -- Catch-all so a missing future partition degrades to a slow write rather than
 -- a failed one. Creating this AFTER the monthly partitions above matters:

@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 class RelatedVideo(models.Model):
@@ -25,7 +26,7 @@ class RelatedVideo(models.Model):
     )
     score = models.FloatField(default=0)
     co_view_count = models.IntegerField(default=0)
-    computed_at = models.DateTimeField(null=True, blank=True)
+    computed_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         managed = False

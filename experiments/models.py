@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 from django.conf import settings
 
 
@@ -10,7 +11,7 @@ class Experiment(models.Model):
     description = models.TextField(null=True, blank=True)
     variants = models.JSONField(default=list)
     is_active = models.BooleanField(default=False)
-    created_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         managed = False
@@ -45,7 +46,7 @@ class ExperimentAssignment(models.Model):
     )
     session_id = models.UUIDField(null=True, blank=True)
     variant = models.CharField(max_length=100)
-    assigned_at = models.DateTimeField(null=True, blank=True)
+    assigned_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         managed = False

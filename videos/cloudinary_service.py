@@ -9,11 +9,16 @@ from django.conf import settings
 
 # ── Video Upload ──────────────────────────────────────────────────────────────
 
-def upload_video_to_cloudinary(file, public_id=None):
-    """Server-side video upload to Cloudinary."""
+def upload_video_to_cloudinary(file, public_id=None, delivery_type='upload'):
+    """
+    Server-side video upload to Cloudinary.
+    delivery_type 'authenticated' stores the asset so only signed URLs work
+    (see videos/delivery.py).
+    """
     result = cloudinary.uploader.upload_large(
         file,
         resource_type='video',
+        type=delivery_type,
         public_id=public_id,
         folder='abia_stream/videos',
         chunk_size=6000000,
@@ -54,10 +59,14 @@ def upload_image_to_cloudinary(file, folder='abia_stream/avatars'):
 
 # ── Signed Upload Params (client-side video) ──────────────────────────────────
 
-def generate_signed_upload_params(folder='abia_stream/videos'):
+def generate_signed_upload_params(folder='abia_stream/videos', delivery_type=None):
     """
     Signed params for direct frontend → Cloudinary VIDEO upload.
     Uses Cloudinary's official signing utility.
+
+    With delivery_type='authenticated' the signature covers `type`, so the
+    frontend MUST send the returned `type` field with the upload or Cloudinary
+    rejects the signature. Omitted by default: existing clients are unaffected.
     """
     timestamp = int(time.time())
 
@@ -66,13 +75,15 @@ def generate_signed_upload_params(folder='abia_stream/videos'):
         'timestamp': timestamp,
         # Do NOT include resource_type — Cloudinary excludes it from signing
     }
+    if delivery_type and delivery_type != 'upload':
+        params_to_sign['type'] = delivery_type
 
     signature = cloudinary.utils.api_sign_request(
         params_to_sign,
         settings.CLOUDINARY_API_SECRET
     )
 
-    return {
+    params = {
         'timestamp': timestamp,
         'signature': signature,
         'api_key': settings.CLOUDINARY_API_KEY,
@@ -80,6 +91,9 @@ def generate_signed_upload_params(folder='abia_stream/videos'):
         'folder': folder,
         'upload_url': f'https://api.cloudinary.com/v1_1/{settings.CLOUDINARY_CLOUD_NAME}/video/upload',
     }
+    if 'type' in params_to_sign:
+        params['type'] = params_to_sign['type']
+    return params
 
 
 # ── Signed Upload Params (client-side image) ──────────────────────────────────
@@ -171,11 +185,12 @@ def generate_adaptive_streaming_url(public_id):
 
 # ── Delete ────────────────────────────────────────────────────────────────────
 
-def delete_video_from_cloudinary(public_id):
+def delete_video_from_cloudinary(public_id, delivery_type='upload'):
     """Delete video from Cloudinary."""
     return cloudinary.uploader.destroy(
         public_id,
         resource_type='video',
+        type=delivery_type,
         invalidate=True,
     )
 

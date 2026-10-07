@@ -103,7 +103,8 @@ INSTALLED_APPS = [
     'events',
     'recommendations',
     'experiments',
-    # 'analytics',
+    'moderation',
+    'analytics',
 
 ]
 
@@ -252,6 +253,9 @@ REST_FRAMEWORK = {
         # Each request carries up to 100 events, so this is generous for a real
         # client and still caps a script.
         'events': '120/min',
+        # Filing content reports (moderation/). Generous for a person, caps
+        # a script trying to mass-report someone off the platform.
+        'reports': '30/hour',
     },
 }
 SPECTACULAR_SETTINGS = {
@@ -325,6 +329,35 @@ CHANNEL_LAYERS = {
     },
 }
 
+# ── Celery ────────────────────────────────────────────────────────────────────
+# See abiastream/celery.py. Shares REDIS_URL with the cache and channel layer
+# unless CELERY_BROKER_URL is set; their key names do not collide.
+from celery.schedules import crontab
+
+CELERY_BROKER_URL = config(
+    'CELERY_BROKER_URL', default=config('REDIS_URL', default='redis://localhost:6379/0')
+)
+CELERY_TASK_IGNORE_RESULT = True          # nothing reads task results
+CELERY_TIMEZONE = 'UTC'
+CELERY_TASK_ACKS_LATE = True              # a crashed worker's task is redelivered
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_BROKER_CONNECTION_TIMEOUT = 3      # bound how long a web request can wait
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_TASK_ALWAYS_EAGER = config('CELERY_TASK_ALWAYS_EAGER', default=False, cast=bool)
+
+CELERY_BEAT_SCHEDULE = {
+    # Keeps view_logs writable: creates next months' partitions ahead of time.
+    'ensure-view-log-partitions': {
+        'task': 'playback.tasks.ensure_view_log_partitions',
+        'schedule': crontab(hour=1, minute=0),
+    },
+    # "Users who watched this also watched" — see recommendations/.
+    'rebuild-related-videos': {
+        'task': 'recommendations.tasks.rebuild_related_videos',
+        'schedule': crontab(hour=3, minute=0),
+    },
+}
+
 # Alternative — no extra table created
 REST_AUTH = {
     'TOKEN_MODEL': None,
@@ -382,6 +415,15 @@ cloudinary.config(
     api_secret=CLOUDINARY_API_SECRET,
     secure=True
 )
+
+# Signed delivery for non-public videos (videos/delivery.py). Without a token
+# key, signed URLs do not expire; with one (Cloudinary token-based auth add-on)
+# they expire after SIGNED_URL_TTL_SECONDS.
+CLOUDINARY_AUTH_TOKEN_KEY = config('CLOUDINARY_AUTH_TOKEN_KEY', default='')
+SIGNED_URL_TTL_SECONDS = config('SIGNED_URL_TTL_SECONDS', default=3600, cast=int)
+
+# Cloudinary webhook signature check: off | log | enforce (videos/views.py).
+CLOUDINARY_WEBHOOK_VERIFY = config('CLOUDINARY_WEBHOOK_VERIFY', default='log')
 
 # SMILE_IDENTITY_PARTNER_ID = config('SMILE_IDENTITY_PARTNER_ID')
 # SMILE_IDENTITY_API_KEY = config('SMILE_IDENTITY_API_KEY')

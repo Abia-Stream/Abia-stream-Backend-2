@@ -20,6 +20,25 @@ def update_video_counter(video, interaction_type, increment=True):
         Video.objects.filter(id=video.id).update(saves_count=F('saves_count') + amount)
 
 
+def sync_report_to_queue(user, video, interaction_type, added):
+    """
+    The one-click `report` interaction predates the moderation app. Mirror it
+    into the moderation queue (reason 'other') so those reports get reviewed.
+    Best-effort: the interaction itself must succeed regardless.
+    """
+    if interaction_type != Interaction.InteractionType.REPORT:
+        return
+    import logging
+    from moderation.services import file_report, withdraw_video_report
+    try:
+        if added:
+            file_report(user, video=video, reason='other')
+        else:
+            withdraw_video_report(user, video)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).exception('Could not mirror report to moderation queue')
+
+
 class InteractWithVideoView(APIView):
     """
     Add or remove an interaction on a video.
@@ -58,6 +77,7 @@ class InteractWithVideoView(APIView):
             # Toggle off — remove interaction
             existing.delete()
             update_video_counter(video, interaction_type, increment=False)
+            sync_report_to_queue(request.user, video, interaction_type, added=False)
             return Response(
                 {
                     'detail': f'{interaction_type.capitalize()} removed.',
@@ -99,6 +119,7 @@ class InteractWithVideoView(APIView):
                 interaction_type=interaction_type
             )
             update_video_counter(video, interaction_type, increment=True)
+            sync_report_to_queue(request.user, video, interaction_type, added=True)
 
             return Response(
                 {

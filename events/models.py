@@ -1,5 +1,6 @@
 import uuid
 from django.db import models
+from django.utils import timezone
 from django.conf import settings
 
 
@@ -43,7 +44,7 @@ class Event(models.Model):
     )
     event_type = models.CharField(max_length=50, choices=Type.choices)
     payload = models.JSONField(default=dict, blank=True)
-    occurred_at = models.DateTimeField(null=True, blank=True)
+    occurred_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         managed = False
