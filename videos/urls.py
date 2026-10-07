@@ -5,6 +5,7 @@ from videos.views import (
     PublishVideoView, ArchiveVideoView,
     CategoryListView, TagListView,
 )
+from videos.views import VideoSearchView, TrendingVideosView
 from videos.views import SaveDraftView, UpdateDraftView, CloudinaryWebhookView, VideoThumbnailSignedParamsView, VideoThumbnailUploadView, UpdateVideoThumbnailFromCloudinaryView
 
 urlpatterns = [
@@ -12,6 +13,10 @@ urlpatterns = [
     path('videos/upload/', VideoUploadView.as_view()),
     path('videos/upload/signed-params/', SignedUploadParamsView.as_view()),  #frontend calls this first
     path('videos/upload/from-cloudinary/', VideoFromCloudinaryView.as_view()), # frontend sends this to cloudinary
+
+    # Discovery — must precede the <uuid:video_id> route
+    path('videos/search/', VideoSearchView.as_view()),      # full-text search
+    path('videos/trending/', TrendingVideosView.as_view()), # most watched recently
 
     # Listing
     path('videos/', VideoListView.as_view()), # Fetch all videos

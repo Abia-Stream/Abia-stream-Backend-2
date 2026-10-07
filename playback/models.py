@@ -32,7 +32,10 @@ class WatchHistory(models.Model):
 
 
 class ViewLog(models.Model):
-    id = models.BigIntegerField(primary_key=True)  # ← change AutoField to IntegerField
+    # Must be BigAutoField, not BigIntegerField. With a non-auto pk, Django
+    # sends an explicit id=NULL on INSERT, which overrides the column's serial
+    # default and violates the NOT NULL constraint — every create() fails.
+    id = models.BigAutoField(primary_key=True)
     video = models.ForeignKey(
         'videos.Video',
         on_delete=models.CASCADE,

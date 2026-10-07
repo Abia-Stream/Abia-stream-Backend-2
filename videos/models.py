@@ -1,6 +1,7 @@
 import uuid
 from django.db import models
 from django.conf import settings
+from django.contrib.postgres.search import SearchVector, SearchVectorField
 
 
 class Category(models.Model):
@@ -68,6 +69,9 @@ class Video(models.Model):
     cloudinary_thumbnail_url = models.CharField(max_length=1000, null=True, blank=True)
     cloudinary_resource_type = models.CharField(max_length=50, null=True, blank=True)
     cloudinary_version = models.CharField(max_length=50, null=True, blank=True)
+    # 'upload' (public URL) or 'authenticated' (signed URLs only). See
+    # sql/006_video_delivery_type.sql and videos/delivery.py.
+    cloudinary_delivery_type = models.CharField(max_length=20, default='upload')
 
     # Video metadata
     duration_seconds = models.IntegerField(null=True, blank=True)
@@ -113,6 +117,20 @@ class Video(models.Model):
     published_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
+
+    # Generated column maintained by Postgres (see sql/002_video_search.sql).
+    # Must be a GeneratedField: a plain field is included in every INSERT and
+    # UPDATE, which Postgres rejects for a generated column — that broke every
+    # create()/save() on Video. The expression mirrors the SQL for
+    # documentation only; the table is unmanaged so Django never emits it.
+    search_vector = models.GeneratedField(
+        expression=(
+            SearchVector('title', weight='A', config='english')
+            + SearchVector('description', weight='B', config='english')
+        ),
+        output_field=SearchVectorField(),
+        db_persist=True,
+    )
 
     class Meta:
         managed = False

@@ -13,6 +13,7 @@ from abiastream.pagination import StandardPagination
 from videos.models import Video
 from playback.models import ViewLog, WatchHistory
 from creator_channels.models import CreatorChannel
+from subscriptions.models import Subscription
 from creator_channels.serializers import (
     CreatorChannelSerializer,
     CreateChannelSerializer,
@@ -263,7 +264,9 @@ class CreatorDashboardView(APIView):
                 'views_change_percent': views_change_percent,
                 'total_watch_hours': total_watch_hours,
                 'subscriber_count': channel.subscriber_count or 0,
-                'new_subscribers_last_28_days': 0,  # populated when subscriptions built
+                'new_subscribers_last_28_days': Subscription.objects.filter(
+                    channel=channel, created_at__gte=last_28_days,
+                ).count(),
                 'total_videos': creator_videos.count(),
                 'published_videos': published_videos.count(),
                 'draft_videos': creator_videos.filter(status=Video.Status.DRAFT).count(),

@@ -1,4 +1,6 @@
+import logging
 import uuid
+from django.conf import settings
 from resend.exceptions import ValidationError
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -9,8 +11,12 @@ from django.utils import timezone
 from videos.file_security import validate_video_file
 from abiastream.pagination import StandardPagination
 from videos.models import Video, Category, Tag, VideoTag
-from django.db.models import F
+from django.db.models import F, Value
+from django.db.models.functions import Coalesce, Ln
+from django.contrib.postgres.search import SearchQuery, SearchRank
 from django.db import connection, models
+from events.models import Event
+from events.utils import log_event
 from videos.serializers import (
     VideoUploadSerializer, VideoFromCloudinarySerializer,
     VideoSerializer, VideoUpdateSerializer,
@@ -22,8 +28,24 @@ from videos.cloudinary_service import (
     generate_signed_upload_params,
     delete_video_from_cloudinary,
 )
+from videos.access import is_video_accessible  # noqa: F401 - re-exported
+from videos.delivery import (
+    desired_delivery_type, delivery_type_from_url, has_asset,
+)
+from videos.ranking import trending_video_ids
+from videos.tasks import sync_video_delivery_type
+from abiastream.tasks import enqueue
+
+logger = logging.getLogger(__name__)
 
 UPLOAD_ROLES = ['viewer', 'creator', 'admin']
+
+# Search ranking weights. Relevance dominates; popularity only breaks ties.
+# Tune against SEARCH_RESULT_CLICK events once they exist.
+SEARCH_WEIGHT_RELEVANCE = 1.0
+SEARCH_WEIGHT_POPULARITY = 0.1
+
+# Trending weights live in videos/ranking.py.
 
 
 
@@ -85,29 +107,14 @@ def detach_tags(video):
 
 
 
-def is_video_accessible(video, user):
-    if video.visibility == Video.Visibility.PUBLIC:
-        return True
-    if video.visibility == Video.Visibility.UNLISTED:
-        return True
-    if not user.is_authenticated:
-        return False
-    if video.creator == user:
-        return True
-    if video.visibility == Video.Visibility.PRIVATE:
-        return False
-    if video.visibility == Video.Visibility.SUBSCRIBERS_ONLY:
-        # Check if user is subscribed to the creator's channel
-        from subscriptions.models import Subscription
-        try:
-            channel = video.creator.channel
-            return Subscription.objects.filter(
-                subscriber=user,
-                channel=channel
-            ).exists()
-        except Exception:
-            return False
-    return False
+def queue_delivery_sync(video):
+    """
+    If the Cloudinary asset's delivery type no longer matches the video's
+    visibility, move it in the background (see videos/delivery.py).
+    """
+    if has_asset(video) and \
+            video.cloudinary_delivery_type != desired_delivery_type(video.visibility):
+        enqueue(sync_video_delivery_type, str(video.id))
 
 
 # ── Server-side Upload ────────────────────────────────────────────────────────
@@ -137,8 +144,11 @@ class VideoUploadView(APIView):
         video_file.name = file_info['safe_name']
 
         # ── Upload to Cloudinary ──────────────────────────────────────────
+        delivery_type = desired_delivery_type(
+            serializer.validated_data.get('visibility', Video.Visibility.PUBLIC)
+        )
         try:
-            result = upload_video_to_cloudinary(video_file)
+            result = upload_video_to_cloudinary(video_file, delivery_type=delivery_type)
         except Exception as e:
             return Response(
                 {'detail': f'Upload failed: {str(e)}'},
@@ -155,6 +165,7 @@ class VideoUploadView(APIView):
             cloudinary_thumbnail_url=thumbnail_url,
             cloudinary_resource_type=result.get('resource_type', 'video'),
             cloudinary_version=str(result.get('version', '')),
+            cloudinary_delivery_type=delivery_type,
             duration_seconds=int(result.get('duration', 0) or 0),
             width=result.get('width'),
             height=result.get('height'),
@@ -168,7 +179,7 @@ class VideoUploadView(APIView):
         attach_tags(video, tag_ids)
 
         return Response(
-            VideoSerializer(video).data,
+            VideoSerializer(video, context={'request': request}).data,
             status=status.HTTP_201_CREATED
         )
 
@@ -182,7 +193,16 @@ class SignedUploadParamsView(APIView):
         from videos.cloudinary_service import generate_signed_upload_params
         import uuid as uuid_lib
 
-        params = generate_signed_upload_params()
+        # Optional ?visibility=<private|unlisted|subscribers_only|public>.
+        # For non-public videos the signature covers type=authenticated and the
+        # frontend must send the returned `type` with the upload. Without the
+        # parameter the response is exactly as before.
+        visibility = request.query_params.get('visibility')
+        delivery_type = None
+        if visibility in Video.Visibility.values:
+            delivery_type = desired_delivery_type(visibility)
+
+        params = generate_signed_upload_params(delivery_type=delivery_type)
 
         # Add unique upload ID for chunked uploads
         params['unique_upload_id'] = uuid_lib.uuid4().hex
@@ -231,13 +251,20 @@ class VideoFromCloudinaryView(APIView):
             creator=request.user,
             cloudinary_resource_type='video',
             status=Video.Status.PROCESSING,
+            # Read from the URL Cloudinary returned, never from the client.
+            cloudinary_delivery_type=delivery_type_from_url(
+                serializer.validated_data['cloudinary_url']
+            ),
             **serializer.validated_data
         )
 
         attach_tags(video, tag_ids)
+        # A non-public video uploaded without the signed `type` lands as a
+        # public asset; move it.
+        queue_delivery_sync(video)
 
         return Response(
-            VideoSerializer(video).data,
+            VideoSerializer(video, context={'request': request}).data,
             status=status.HTTP_201_CREATED
         )
 
@@ -319,7 +346,7 @@ class MyVideosView(APIView):
         
         paginator = StandardPagination()
         page = paginator.paginate_queryset(queryset, request)
-        serializer = VideoSerializer(page, many=True)
+        serializer = VideoSerializer(page, many=True, context={'request': request})
         return paginator.get_paginated_response(serializer.data)
 
 
@@ -361,7 +388,7 @@ class VideoDetailView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        return Response(VideoSerializer(video).data)
+        return Response(VideoSerializer(video, context={'request': request}).data)
 
     def patch(self, request, video_id):
         video = get_object_or_404(Video, id=video_id, creator=request.user)
@@ -391,14 +418,17 @@ class VideoDetailView(APIView):
             attach_tags(video, tag_ids)
 
         video.refresh_from_db()
-        return Response(VideoSerializer(video).data)
+        queue_delivery_sync(video)
+        return Response(VideoSerializer(video, context={'request': request}).data)
 
     def delete(self, request, video_id):
         video = get_object_or_404(Video, id=video_id, creator=request.user)
 
         # Try to delete from Cloudinary (don't fail if it errors)
         try:
-            delete_video_from_cloudinary(video.cloudinary_public_id)
+            delete_video_from_cloudinary(
+                video.cloudinary_public_id, video.cloudinary_delivery_type
+            )
         except Exception:
             pass
 
@@ -436,7 +466,7 @@ class PublishVideoView(APIView):
             video.published_at = timezone.now()
         video.save()
 
-        return Response(VideoSerializer(video).data)
+        return Response(VideoSerializer(video, context={'request': request}).data)
 
 
 class ArchiveVideoView(APIView):
@@ -462,7 +492,7 @@ class ArchiveVideoView(APIView):
         video.status = Video.Status.ARCHIVED
         video.save()
 
-        return Response(VideoSerializer(video).data)
+        return Response(VideoSerializer(video, context={'request': request}).data)
 
 
 # ── Categories & Tags ─────────────────────────────────────────────────────────
@@ -526,7 +556,7 @@ class SaveDraftView(APIView):
         )
 
         return Response(
-            VideoSerializer(video).data,
+            VideoSerializer(video, context={'request': request}).data,
             status=status.HTTP_201_CREATED
         )
 
@@ -573,6 +603,7 @@ class UpdateDraftView(APIView):
         # Update status to processing when video is added
         if 'cloudinary_url' in request.data and request.data['cloudinary_url']:
             video.status = Video.Status.PROCESSING
+            video.cloudinary_delivery_type = delivery_type_from_url(video.cloudinary_url)
 
         video.save()
 
@@ -583,13 +614,46 @@ class UpdateDraftView(APIView):
             attach_tags(video, tag_ids)
 
         video.refresh_from_db()
-        return Response(VideoSerializer(video).data)
+        queue_delivery_sync(video)
+        return Response(VideoSerializer(video, context={'request': request}).data)
+
+
+def cloudinary_signature_valid(request):
+    """Check X-Cld-Signature / X-Cld-Timestamp against the raw body."""
+    import cloudinary.utils
+    try:
+        return cloudinary.utils.verify_notification_signature(
+            request.body.decode('utf-8'),
+            int(request.headers.get('X-Cld-Timestamp', '')),
+            request.headers.get('X-Cld-Signature', ''),
+        )
+    except Exception:  # noqa: BLE001 - missing/garbled headers are simply invalid
+        return False
 
 
 class CloudinaryWebhookView(APIView):
+    """
+    Cloudinary upload/eager notifications.
+
+    Signature checking is controlled by CLOUDINARY_WEBHOOK_VERIFY:
+      off      no check (the original behaviour)
+      log      (default) unsigned/forged calls are processed but logged
+      enforce  unsigned/forged calls are rejected with 401
+    Run with `log` first, confirm no errors are logged for real uploads,
+    then switch to `enforce`.
+    """
     permission_classes = [AllowAny]
 
     def post(self, request):
+        # request.body must be read before request.data consumes the stream.
+        mode = settings.CLOUDINARY_WEBHOOK_VERIFY
+        if mode != 'off' and not cloudinary_signature_valid(request):
+            logger.error('Cloudinary webhook with missing or invalid signature '
+                         '(mode=%s, public_id=%s)', mode, request.data.get('public_id'))
+            if mode == 'enforce':
+                return Response({'detail': 'Invalid signature.'},
+                                status=status.HTTP_401_UNAUTHORIZED)
+
         notification_type = request.data.get('notification_type')
         public_id = request.data.get('public_id')
         status_field = request.data.get('status')
@@ -733,3 +797,115 @@ class UpdateVideoThumbnailFromCloudinaryView(APIView):
             'detail': 'Video thumbnail updated successfully.',
             'thumbnail_url': thumbnail_url,
         })
+
+# ── Search ────────────────────────────────────────────────────────────────────
+
+class VideoSearchView(APIView):
+    """
+    Full-text search over published public videos.
+
+    GET /api/v1/videos/search/?q=<query>
+
+    Stage 0 behaviour is relevance-only ranking. The blended ranking below is
+    the Stage 3 upgrade: text relevance is still dominant, but views and
+    recency break ties among comparably-relevant results. Weights are module
+    constants so they can be tuned against real click data — they are guesses
+    until SEARCH_RESULT_CLICK events accumulate.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        query_text = (request.query_params.get('q') or '').strip()
+
+        if not query_text:
+            return Response(
+                {'detail': 'Query parameter "q" is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        search_query = SearchQuery(query_text, config='english')
+
+        queryset = (
+            Video.objects.filter(
+                status=Video.Status.PUBLISHED,
+                visibility=Video.Visibility.PUBLIC,
+            )
+            .filter(search_vector=search_query)
+            .annotate(
+                relevance=SearchRank(F('search_vector'), search_query),
+                # log-damped so a viral video cannot dominate every query
+                popularity=Ln(Coalesce(F('views_count'), Value(0)) + Value(1)),
+            )
+            .annotate(
+                score=(
+                    F('relevance') * Value(SEARCH_WEIGHT_RELEVANCE)
+                    + F('popularity') * Value(SEARCH_WEIGHT_POPULARITY)
+                )
+            )
+            .select_related('category', 'creator')
+            .prefetch_related('tags')
+            .order_by('-score', '-published_at')
+        )
+
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(queryset, request)
+        serializer = VideoSerializer(page, many=True)
+
+        # Logged server-side so the signal cannot be lost to a client that
+        # forgets to emit it. This is the training data for search ranking.
+        log_event(
+            request,
+            Event.Type.SEARCH,
+            payload={
+                'query': query_text,
+                'result_count': paginator.page.paginator.count,
+            },
+        )
+
+        return paginator.get_paginated_response(serializer.data)
+
+
+# ── Trending ──────────────────────────────────────────────────────────────────
+
+class TrendingVideosView(APIView):
+    """
+    Most-watched videos in a recent time window.
+
+    GET /api/v1/videos/trending/?days=7
+
+    Ranked by completions rather than raw view count. Raw views reward
+    clickbait; a view that was actually watched through is the stronger signal,
+    and both columns already exist on view_logs.
+
+    This runs as a live aggregate. It is the query most likely to need caching
+    as volume grows — it is written to be movable behind a scheduled job
+    without changing the response shape.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        try:
+            days = int(request.query_params.get('days', 7))
+        except (TypeError, ValueError):
+            days = 7
+        days = max(1, min(days, 90))
+
+        # Completion-weighted ranking; shared with the For You feed.
+        video_ids = trending_video_ids(days)
+        if not video_ids:
+            return Response([])
+
+        videos = {
+            v.id: v
+            for v in Video.objects.filter(
+                id__in=video_ids,
+                status=Video.Status.PUBLISHED,
+                visibility=Video.Visibility.PUBLIC,
+            ).select_related('category', 'creator').prefetch_related('tags')
+        }
+
+        # Preserve ranking order; drop anything unpublished since it was watched.
+        ordered = [videos[vid] for vid in video_ids if vid in videos]
+
+        serializer = VideoSerializer(ordered, many=True)
+        return Response(serializer.data)

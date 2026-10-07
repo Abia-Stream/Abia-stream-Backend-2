@@ -5,7 +5,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from django.db.models import F
+from django.db.models import F, Value
+from django.db.models.functions import Coalesce
 from playback.models import WatchHistory, ViewLog
 from playback.serializers import (
     WatchHistorySerializer,
@@ -15,6 +16,13 @@ from playback.serializers import (
 from videos.models import Video
 from abiastream.pagination import StandardPagination
 from profiles.models import Profile
+from datetime import timedelta
+
+# A repeat view from the same session inside this window does not re-count.
+# Without it, views_count is inflatable by refreshing, and every ranking
+# signal built on it inherits that.
+VIEW_DEDUPE_WINDOW_MINUTES = 30
+
 
 
 def get_client_ip(request):
@@ -169,6 +177,15 @@ class RecordViewView(APIView):
         user_agent = request.META.get('HTTP_USER_AGENT', '')
         detected_device = device_type or get_device_type(user_agent)
 
+        # A view is always logged — the raw log should stay complete for
+        # analytics. Only the public counter is deduplicated.
+        cutoff = timezone.now() - timedelta(minutes=VIEW_DEDUPE_WINDOW_MINUTES)
+        is_repeat = ViewLog.objects.filter(
+            video=video,
+            session_id=session_id,
+            timestamp__gte=cutoff,
+        ).exists()
+
         # Log the view
         ViewLog.objects.create(
             video=video,
@@ -183,18 +200,19 @@ class RecordViewView(APIView):
             timestamp=timezone.now(),
         )
 
-        # Update creator's total views on their profile
-        Profile.objects.filter(user=video.creator).update(
-            total_views=F('total_views') + 1
-        )
-
-        # Increment video view count
-        Video.objects.filter(id=video.id).update(
-            views_count=F('views_count') + 1
-        )
+        # Increment the video's view count and the creator's profile total.
+        # Both follow the same dedupe rule so they stay consistent.
+        if not is_repeat:
+            Video.objects.filter(id=video.id).update(
+                views_count=F('views_count') + 1
+            )
+            Profile.objects.filter(user=video.creator).update(
+                # Profiles created through the ORM start with NULL, not 0.
+                total_views=Coalesce(F('total_views'), Value(0)) + 1
+            )
 
         return Response(
-            {'detail': 'View recorded.'},
+            {'detail': 'View recorded.', 'counted': not is_repeat},
             status=status.HTTP_200_OK
         )
 
