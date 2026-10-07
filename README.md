@@ -190,6 +190,8 @@ Server runs at `http://127.0.0.1:8000`
 | `CLOUDINARY_AUTH_TOKEN_KEY` | Cloudinary token-auth key; makes signed video URLs expire | ❌ |
 | `SIGNED_URL_TTL_SECONDS` | Lifetime of expiring signed URLs (default 3600) | ❌ |
 | `CLOUDINARY_WEBHOOK_VERIFY` | `off`, `log` (default) or `enforce` — Cloudinary webhook signature check | ❌ |
+| `LIVESTREAM_IDLE_TIMEOUT_SECONDS` | How long a dropped encoder may reconnect before a stream ends (default 120) | ❌ |
+| `LIVESTREAM_MAX_RUNTIME_SECONDS` | Maximum stream length (default 14400 = 4 h) | ❌ |
 
 ---
 
@@ -206,6 +208,7 @@ Every model is `managed = False`: the schema lives in Supabase and Django migrat
 | `005_view_logs_partitions.sql` | Monthly `view_logs` partitions for 2026 + a default partition (view recording fails without these) |
 | `006_video_delivery_type.sql` | Tracks public vs signed-only Cloudinary storage per video |
 | `007_moderation.sql` | Content reports + moderation audit log |
+| `008_livestreaming.sql` | Livestream columns, viewer sessions, live chat, moderation actions for streams |
 
 `sql/baseline/000_live_schema.sql` is a schema-only snapshot of production used **only** by the test suite. Never run it against Supabase.
 
@@ -225,6 +228,7 @@ celery -A abiastream beat -l info
 | Daily 01:00 | Create upcoming `view_logs` monthly partitions | `python manage.py ensure_view_log_partitions` |
 | Daily 03:00 | Rebuild "related videos" from watch history | `python manage.py build_related_videos --prune` |
 | On visibility change | Move a video between public and signed-only storage | `python manage.py sync_video_delivery` (dry run; add `--apply`) |
+| Every minute | Livestream status, recordings → videos, cleanup (also happens whenever a stream is viewed) | `python manage.py sync_livestreams` |
 
 ---
 

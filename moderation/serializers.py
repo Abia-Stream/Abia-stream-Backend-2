@@ -46,6 +46,8 @@ class ApplyActionSerializer(serializers.Serializer):
     video_id = serializers.UUIDField(required=False)
     comment_id = serializers.UUIDField(required=False)
     user_id = serializers.UUIDField(required=False)
+    livestream_id = serializers.UUIDField(required=False)
+    chat_message_id = serializers.UUIDField(required=False)
     note = serializers.CharField(required=False, allow_blank=True, max_length=2000)
 
 
@@ -54,8 +56,11 @@ class ModerationActionSerializer(serializers.ModelSerializer):
     video_id = serializers.UUIDField(read_only=True)
     comment_id = serializers.UUIDField(read_only=True)
     target_user_id = serializers.UUIDField(read_only=True)
+    livestream_id = serializers.UUIDField(read_only=True)
+    chat_message_id = serializers.UUIDField(read_only=True)
 
     class Meta:
         model = ModerationAction
         fields = ['id', 'moderator_id', 'action', 'video_id', 'comment_id',
-                  'target_user_id', 'note', 'metadata', 'created_at']
+                  'target_user_id', 'livestream_id', 'chat_message_id',
+                  'note', 'metadata', 'created_at']
