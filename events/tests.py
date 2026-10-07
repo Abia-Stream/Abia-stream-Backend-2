@@ -34,3 +34,16 @@ class RecordEventsTests(TestCase):
             {'event_type': 'nope', 'session_id': str(uuid.uuid4())},
         ]}, format='json')
         self.assertEqual(response.status_code, 400)
+
+
+class SessionHeaderCorsTests(TestCase):
+
+    def test_browser_may_send_x_session_id(self):
+        response = client_for().options(
+            '/api/v1/events/',
+            HTTP_ORIGIN='http://localhost:3000',
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD='POST',
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS='content-type, x-session-id',
+        )
+        allowed = response.headers.get('access-control-allow-headers', '').lower()
+        self.assertIn('x-session-id', allowed)

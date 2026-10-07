@@ -1,5 +1,7 @@
 # Abia Stream Backend
 
+> **What changed:** [CHANGELOG.md](CHANGELOG.md) · **Frontend to-do:** [FRONTEND_INTEGRATION.md](FRONTEND_INTEGRATION.md) · **Endpoints:** [API DOCUMENTATION.md](API%20DOCUMENTATION.md)
+
 A Django REST Framework backend for the Abia Stream video streaming platform. Built with JWT authentication, Supabase PostgreSQL, and Cloudinary for media storage.
 
 ---
