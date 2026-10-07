@@ -46,6 +46,9 @@ class Video(models.Model):
         PUBLISHED = 'published', 'Published'
         ARCHIVED = 'archived', 'Archived'
         BLOCKED = 'blocked', 'Blocked'
+        # Held from the public by an automatic check until a moderator
+        # approves or blocks it (sql/009, moderation/auto.py).
+        HELD = 'held', 'Held for review'
 
     class Visibility(models.TextChoices):
         PUBLIC = 'public', 'Public'

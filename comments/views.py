@@ -66,6 +66,10 @@ class VideoCommentsView(APIView):
             content=content,
         )
 
+        # Spam links / phone numbers / banned terms go to the moderation queue.
+        from moderation.auto import check_comment
+        check_comment(comment)
+
         # Increment replies_count on parent
         if parent:
             Comment.objects.filter(id=parent.id).update(

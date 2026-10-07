@@ -118,7 +118,10 @@ def apply_action(moderator, action, *, video=None, comment=None, user=None, note
             video = Video.objects.select_for_update().get(pk=video.pk)
             if video.status == Video.Status.BLOCKED:
                 raise ModerationError('Video is already blocked.')
-            metadata['previous_status'] = video.status
+            from moderation.auto import pre_hold_status
+            # Restoring later returns it to where it was before any hold.
+            metadata['previous_status'] = (pre_hold_status(video)
+                                           if video.status == Video.Status.HELD else video.status)
             video.status = Video.Status.BLOCKED
             video.save(update_fields=['status', 'updated_at'])
             resolved = _resolve_reports(moderator, ContentReport.Status.ACTIONED, note,
@@ -139,6 +142,21 @@ def apply_action(moderator, action, *, video=None, comment=None, user=None, note
             metadata['restored_status'] = previous
             video.status = previous
             video.save(update_fields=['status', 'updated_at'])
+            user = video.creator
+
+        elif action == Action.APPROVE_VIDEO:
+            if video is None:
+                raise ModerationError('video_id is required.')
+            video = Video.objects.select_for_update().get(pk=video.pk)
+            if video.status != Video.Status.HELD:
+                raise ModerationError('Video is not held for review.')
+            from moderation.auto import pre_hold_status
+            restored = pre_hold_status(video)
+            metadata['restored_status'] = restored
+            video.status = restored
+            video.save(update_fields=['status', 'updated_at'])
+            resolved = _resolve_reports(moderator, ContentReport.Status.DISMISSED, note,
+                                        video=video)
             user = video.creator
 
         elif action == Action.REMOVE_COMMENT:
@@ -232,6 +250,16 @@ def apply_action(moderator, action, *, video=None, comment=None, user=None, note
             note=note, metadata=metadata,
         )
 
+    if action == Action.BLOCK_VIDEO:
+        # Re-uploads of what was just blocked are held too (no network: uses
+        # stored fingerprints).
+        from moderation.auto import hold_reuploads_of
+        metadata_held = hold_reuploads_of(video)
+        if metadata_held:
+            ModerationAction.objects.filter(id=record.id).update(
+                metadata={**record.metadata, 'reuploads_held': metadata_held})
+            record.metadata = {**record.metadata, 'reuploads_held': metadata_held}
+
     _notify_affected(action, video=video, comment=comment, user=user, note=note,
                      livestream=livestream)
     return record, resolved
@@ -243,6 +271,10 @@ def _notify_affected(action, *, video, comment, user, note, livestream=None):
         _notify(user, 'video_blocked', 'Video removed',
                 f'Your video "{video.title}" was removed for violating the community '
                 f'guidelines.{reason}', {'video_id': str(video.id)})
+    elif action == Action.APPROVE_VIDEO:
+        _notify(user, 'video_approved', 'Review complete',
+                f'Your video "{video.title}" passed review and is available again.',
+                {'video_id': str(video.id)})
     elif action == Action.RESTORE_VIDEO:
         _notify(user, 'video_restored', 'Video restored',
                 f'Your video "{video.title}" has been restored.',

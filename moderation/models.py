@@ -1,6 +1,7 @@
 import uuid
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
 
@@ -29,10 +30,21 @@ class ContentReport(models.Model):
         DISMISSED = 'dismissed', 'Dismissed'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    class Source(models.TextChoices):
+        USER = 'user', 'User report'
+        AUTO = 'auto', 'Automatic check'
+
+    # Null for automatic flags (source='auto').
     reporter = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True,
         db_column='reporter_id', related_name='reports_filed',
     )
+    source = models.CharField(max_length=10, choices=Source.choices, default=Source.USER)
+    # What tripped an automatic flag, e.g. 'reupload_of_blocked' (moderation/auto.py).
+    signal = models.CharField(max_length=50, null=True, blank=True)
+    # What the automatic check found, e.g. {"matched_video_id": ..., "similarity": 0.9}.
+    # (`details` is the human reporter's free text.)
+    signal_details = models.JSONField(default=dict, blank=True)
     target_type = models.CharField(max_length=20, choices=TargetType.choices)
     video = models.ForeignKey(
         'videos.Video', on_delete=models.CASCADE, null=True, blank=True,
@@ -62,12 +74,29 @@ class ContentReport(models.Model):
         return f'{self.target_type} report ({self.reason}) [{self.status}]'
 
 
+class VideoFingerprint(models.Model):
+    """Perceptual frame hashes of a video (moderation/fingerprint.py)."""
+
+    video = models.OneToOneField(
+        'videos.Video', on_delete=models.CASCADE, primary_key=True,
+        db_column='video_id', related_name='fingerprint',
+    )
+    frame_hashes = ArrayField(models.BigIntegerField())
+    duration_seconds = models.IntegerField(null=True, blank=True)
+    computed_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        managed = False
+        db_table = 'video_fingerprints'
+
+
 class ModerationAction(models.Model):
     """Audit log of moderator decisions. Append-only."""
 
     class Action(models.TextChoices):
         BLOCK_VIDEO = 'block_video', 'Block video'
         RESTORE_VIDEO = 'restore_video', 'Restore video'
+        APPROVE_VIDEO = 'approve_video', 'Approve held video'
         REMOVE_COMMENT = 'remove_comment', 'Remove comment'
         RESTORE_COMMENT = 'restore_comment', 'Restore comment'
         SUSPEND_USER = 'suspend_user', 'Suspend user'

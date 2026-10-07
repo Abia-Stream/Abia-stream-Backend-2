@@ -362,6 +362,11 @@ CELERY_BEAT_SCHEDULE = {
     },
     # Livestream status/recordings/cleanup. Also happens on read, so this
     # only keeps things tidy when nobody is watching.
+    # Fingerprint videos missed by upload-time checks (Cloudinary down, etc.).
+    'scan-videos': {
+        'task': 'moderation.tasks.scan_videos',
+        'schedule': crontab(minute=20),
+    },
     'sync-livestreams': {
         'task': 'livestreams.tasks.sync_livestreams',
         'schedule': 60.0,
@@ -439,6 +444,17 @@ CLOUDINARY_WEBHOOK_VERIFY = config('CLOUDINARY_WEBHOOK_VERIFY', default='log')
 # encoder can reconnect before the stream counts as ended.
 LIVESTREAM_IDLE_TIMEOUT_SECONDS = config('LIVESTREAM_IDLE_TIMEOUT_SECONDS', default=120, cast=int)
 LIVESTREAM_MAX_RUNTIME_SECONDS = config('LIVESTREAM_MAX_RUNTIME_SECONDS', default=4 * 3600, cast=int)
+
+# Automatic moderation (moderation/auto.py, text_checks.py). Comma-separated
+# words/phrases; matches in comments and video text go to the moderation
+# queue, and are refused in live chat.
+from decouple import Csv
+MODERATION_BANNED_TERMS = config('MODERATION_BANNED_TERMS', default='', cast=Csv())
+
+# Upper bound for uploads when Cloudinary's own limit can't be read
+# (videos/limits.py). Free plan: 100 MB.
+VIDEO_MAX_UPLOAD_BYTES_FALLBACK = config('VIDEO_MAX_UPLOAD_BYTES_FALLBACK',
+                                         default=100 * 1024 * 1024, cast=int)
 
 # SMILE_IDENTITY_PARTNER_ID = config('SMILE_IDENTITY_PARTNER_ID')
 # SMILE_IDENTITY_API_KEY = config('SMILE_IDENTITY_API_KEY')

@@ -30,7 +30,7 @@ ABR_TRANSFORMATION = [{'streaming_profile': 'auto'}]
 THUMBNAIL_TRANSFORMATION = [
     {'width': 1280, 'height': 720, 'crop': 'fill'},
     {'quality': 'auto'},
-    {'start_offset': '1'},
+    {'start_offset': 'auto'},   # Cloudinary picks the most interesting frame
 ]
 
 

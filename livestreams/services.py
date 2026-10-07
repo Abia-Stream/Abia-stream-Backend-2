@@ -282,6 +282,9 @@ def finalize_recording(stream):
         locked.save(update_fields=['recording_video', 'updated_at'])
 
     stream.recording_video = video
+    # Same automatic checks as any upload; a held recording stays hidden.
+    from moderation.auto import check_video
+    check_video(video)
     broadcast(stream.id, 'recording_ready', video_id=str(video.id))
     return video
 
@@ -333,6 +336,9 @@ def post_chat_message(stream, user, content):
         raise LiveStreamError('Chat is closed: this stream is not live.')
     if not 1 <= len(content) <= 500:
         raise LiveStreamError('Message must be 1–500 characters.')
+    from moderation.text_checks import allowed_in_chat
+    if not allowed_in_chat(content):
+        raise LiveStreamError("Links, phone numbers and blocked words aren't allowed in chat.")
     message = ChatMessage.objects.create(livestream=stream, user=user, content=content)
     from livestreams.serializers import ChatMessageSerializer
     broadcast(stream.id, 'chat_message', message=ChatMessageSerializer(message).data)

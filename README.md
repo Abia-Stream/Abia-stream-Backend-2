@@ -192,6 +192,7 @@ Server runs at `http://127.0.0.1:8000`
 | `CLOUDINARY_WEBHOOK_VERIFY` | `off`, `log` (default) or `enforce` — Cloudinary webhook signature check | ❌ |
 | `LIVESTREAM_IDLE_TIMEOUT_SECONDS` | How long a dropped encoder may reconnect before a stream ends (default 120) | ❌ |
 | `LIVESTREAM_MAX_RUNTIME_SECONDS` | Maximum stream length (default 14400 = 4 h) | ❌ |
+| `MODERATION_BANNED_TERMS` | Comma-separated words/phrases flagged in comments/videos and refused in chat | ❌ |
 
 ---
 
@@ -209,6 +210,7 @@ Every model is `managed = False`: the schema lives in Supabase and Django migrat
 | `006_video_delivery_type.sql` | Tracks public vs signed-only Cloudinary storage per video |
 | `007_moderation.sql` | Content reports + moderation audit log |
 | `008_livestreaming.sql` | Livestream columns, viewer sessions, live chat, moderation actions for streams |
+| `009_auto_moderation.sql` | Video fingerprints, `held` video status, automatic entries in the moderation queue |
 
 `sql/baseline/000_live_schema.sql` is a schema-only snapshot of production used **only** by the test suite. Never run it against Supabase.
 
@@ -229,6 +231,7 @@ celery -A abiastream beat -l info
 | Daily 03:00 | Rebuild "related videos" from watch history | `python manage.py build_related_videos --prune` |
 | On visibility change | Move a video between public and signed-only storage | `python manage.py sync_video_delivery` (dry run; add `--apply`) |
 | Every minute | Livestream status, recordings → videos, cleanup (also happens whenever a stream is viewed) | `python manage.py sync_livestreams` |
+| Hourly (:20) | Fingerprint and check videos the upload-time checks missed | `python manage.py scan_videos` |
 
 ---
 

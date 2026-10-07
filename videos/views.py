@@ -207,7 +207,10 @@ class SignedUploadParamsView(APIView):
         # Add unique upload ID for chunked uploads
         params['unique_upload_id'] = uuid_lib.uuid4().hex
         params['chunk_size'] = 10 * 1024 * 1024  # 10MB per chunk
-        params['max_file_size'] = 1 * 1024 * 1024 * 1024  # 1GB
+        # Cloudinary's real per-file limit for this account (100 MB on the
+        # Free plan): check it client-side before uploading.
+        from videos.limits import max_video_bytes
+        params['max_file_size'] = min(1 * 1024 * 1024 * 1024, max_video_bytes())
 
         return Response(params)
 
@@ -399,6 +402,12 @@ class VideoDetailView(APIView):
                 {'detail': 'This video has been blocked and cannot be edited.'},
                 status=status.HTTP_403_FORBIDDEN
             )
+        if video.status == Video.Status.HELD and 'status' in request.data:
+            return Response(
+                {'detail': 'This video is being reviewed by moderators. '
+                           'Its status can change once the review is done.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
         serializer = VideoUpdateSerializer(video, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -406,8 +415,12 @@ class VideoDetailView(APIView):
         tag_ids = serializer.validated_data.pop('tag_ids', None)
 
         # Set published_at on first publish
-        if serializer.validated_data.get('status') == Video.Status.PUBLISHED:
-            if not video.published_at:
+        if serializer.validated_data.get('status') == Video.Status.PUBLISHED                 and video.status != Video.Status.PUBLISHED:
+            from moderation.auto import screen_before_publish
+            if not screen_before_publish(video):
+                # Held for review: keep the other edits, drop the publish.
+                serializer.validated_data.pop('status')
+            elif not video.published_at:
                 serializer.validated_data['published_at'] = timezone.now()
 
         serializer.save()
@@ -460,6 +473,13 @@ class PublishVideoView(APIView):
                 {'detail': f'Cannot publish a video with status: {video.status}.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+        # Automatic checks (moderation/auto.py). A strong match is held for
+        # review instead of published; the response then shows status "held".
+        from moderation.auto import screen_before_publish
+        if not screen_before_publish(video):
+            video.refresh_from_db()
+            return Response(VideoSerializer(video, context={'request': request}).data)
 
         video.status = Video.Status.PUBLISHED
         if not video.published_at:
@@ -668,6 +688,14 @@ class CloudinaryWebhookView(APIView):
                 if videos.exists():
                     video = videos.first()
                     videos.update(status=Video.Status.READY)
+
+                    # ── Automatic checks (fingerprint, text) ─────────────
+                    from moderation.auto import check_video
+                    video.refresh_from_db()
+                    if check_video(video)['held']:
+                        from realtime.broadcaster import broadcast_video_status
+                        broadcast_video_status(video.id, 'held')
+                        return Response({'detail': 'Held for review.'})
 
                     # ── Broadcast status change in real-time ──────────────
                     from realtime.broadcaster import (

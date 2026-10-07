@@ -2491,3 +2491,51 @@ Both appear in the audit log (`GET /moderation/actions/?livestream_id=`).
 | `GET` | `/api/v1/livestreams/<id>/chat/` | Chat messages | — |
 | `POST` | `/api/v1/livestreams/<id>/chat/` | Send chat message | 🔒 |
 | `DELETE` | `/api/v1/livestreams/chat/<message_id>/` | Delete chat message | 🔒 |
+
+
+---
+
+## Automatic Moderation
+
+Uploads, comments and chat are checked automatically. Policy: a **strong match is held** from the public until a moderator reviews it; **weaker signals only add an entry** to the moderation queue.
+
+| Check | When | Result |
+|-------|------|--------|
+| Video is a re-upload of a **blocked** video (visual fingerprint) | Processing finishes, or publish | Video status → `held`; queue entry; creator gets `video_held` |
+| Video copies another creator's earlier published video | Same | Queue entry (reason `copyright`), stays up |
+| Title/description has spam links, phone numbers or banned terms | Same | Queue entry, stays up |
+| Comment has spam links, phone numbers or banned terms | On posting | Queue entry, stays up |
+| Live chat message has a link, phone number or banned term | On posting | Refused (`400`) |
+| A moderator blocks a video | `block_video` | Other copies of it are held too |
+
+### Video status `held`
+A held video behaves like an unpublished one: hidden from lists, search, feed and its public page. The owner sees it in *My Videos* with `status: "held"` and can edit its title and description but not its status. Publishing a video that turns out to be a re-upload of a blocked one returns `200` with `status: "held"` instead of `published`.
+
+### Moderator actions
+New action: `{"action": "approve_video", "video_id": "…"}` — returns a held video to the status it had before the hold (dismissing its automatic flags) and notifies the creator (`video_approved`). `block_video` also works on held videos.
+
+### Queue entries from automatic checks
+Queue rows have `automatic_signals`, e.g.:
+```json
+[{"signal": "reupload_of_blocked", "matched_video_id": "…", "similarity": 1.0, "previous_status": "ready"}]
+```
+Signals: `reupload_of_blocked`, `duplicate_of_other_creator`, `spam_links`, `contact_spam`, `banned_term`. In `GET /moderation/reports/`, automatic entries have `"source": "auto"`, `"reporter_id": null`, plus `signal` and `signal_details`.
+
+### Configuration
+`MODERATION_BANNED_TERMS` — comma-separated words/phrases (environment variable). Empty by default.
+
+### New notification types
+| Type | Triggered by |
+|------|-------------|
+| `video_held` | Your video is under review |
+| `video_approved` | Review finished; your video is available again |
+
+---
+
+## Upload Size Limit
+
+`GET /videos/upload/signed-params/` now returns the **real** per-file limit in `max_file_size` (bytes). It comes from the Cloudinary account (100 MB on the current Free plan) and rises automatically if the plan is upgraded. Check the file size before uploading; bigger files are rejected by Cloudinary. Server-side uploads (`POST /videos/upload/`) over the limit get `400` "File too large. Max 100 MB."
+
+## Thumbnails
+
+Auto-generated thumbnails now use the most visually interesting frame of the video (Cloudinary `so_auto`) instead of the frame at 1 second. Applies to new uploads; existing thumbnails are unchanged.

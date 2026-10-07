@@ -133,8 +133,13 @@ def generate_signed_image_upload_params(folder='abia_stream/avatars'):
 
 # ── Thumbnail ─────────────────────────────────────────────────────────────────
 
-def generate_thumbnail_url(public_id, timestamp_seconds=1):
-    """Auto-generate thumbnail from video at given timestamp."""
+def generate_thumbnail_url(public_id, timestamp_seconds='auto'):
+    """
+    Auto-generate a thumbnail from the video. The default 'auto' lets
+    Cloudinary pick the most visually interesting frame (roadmap Stage 2:
+    better auto-picked thumbnails) instead of a fixed second, which is often
+    a black or title frame. Pass a number of seconds for a fixed frame.
+    """
     return cloudinary.CloudinaryVideo(public_id).build_url(
         resource_type='video',
         format='jpg',

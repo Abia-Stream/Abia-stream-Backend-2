@@ -24,9 +24,9 @@ class ReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = ContentReport
         fields = [
-            'id', 'reporter_id', 'target_type', 'video_id', 'comment_id',
-            'reason', 'details', 'status', 'reviewed_by_id', 'reviewed_at',
-            'resolution_note', 'created_at',
+            'id', 'source', 'signal', 'signal_details', 'reporter_id', 'target_type',
+            'video_id', 'comment_id', 'reason', 'details', 'status', 'reviewed_by_id',
+            'reviewed_at', 'resolution_note', 'created_at',
         ]
 
 
