@@ -2150,3 +2150,213 @@ Authorization: Bearer <access_token>
 | `PATCH` | `/api/v1/notifications/read-all/` | Mark all as read | 🔒 |
 | `PATCH` | `/api/v1/notifications/<id>/archive/` | Archive notification | 🔒 |
 | `DELETE` | `/api/v1/notifications/<id>/` | Delete notification | 🔒 |
+
+---
+
+## Video Delivery & Streaming
+
+Every video object now carries a `streaming_url` next to `cloudinary_url`:
+
+| Field | What it is |
+|-------|-----------|
+| `cloudinary_url` | Progressive MP4 (unchanged for public videos) |
+| `streaming_url` | Adaptive-bitrate HLS playlist (`.m3u8`). Prefer this in the player (hls.js / native Safari). `null` for drafts with no upload yet |
+| `cloudinary_thumbnail_url` | Thumbnail |
+
+### Private, unlisted and subscribers-only videos
+
+Public videos are stored and served exactly as before. Every other visibility is stored as a Cloudinary **authenticated** asset: the plain URL no longer works, and the API returns **signed** URLs (`.../video/authenticated/s--<sig>--/...`) only to someone allowed to watch (the owner, subscribers for `subscribers_only`, anyone with the link for `unlisted`). If the server has a Cloudinary token key configured, signed URLs also expire (default 1 hour) — re-fetch the video to get a fresh one.
+
+Changing a video's visibility moves the asset in the background; there is nothing for the frontend to do.
+
+### Uploading a non-public video directly to Cloudinary
+
+```
+GET /videos/upload/signed-params/?visibility=private
+```
+
+When `visibility` is anything other than `public`, the response includes `"type": "authenticated"`, and the signature covers it — **send `type` along with the other fields in the Cloudinary upload form**, or Cloudinary rejects the signature. Without the query parameter the response is identical to before.
+
+If the frontend does not send `type` (older clients), the upload still works; the backend moves the asset to authenticated storage shortly after `from-cloudinary` is called.
+
+---
+
+## Discovery
+
+### Search
+```
+GET /videos/search/?q=<text>
+```
+Full-text search over title (weighted higher) and description of published public videos. Relevance first, view count breaks ties. Paginated. `400` if `q` is missing.
+
+### Trending
+```
+GET /videos/trending/?days=7
+```
+Up to 50 videos ranked by completion-weighted views in the last `days` (1–90). Not paginated.
+
+### For You feed
+```
+GET /videos/feed/?page=1&page_size=8
+```
+Personalized home feed; works signed out too. Paginated; each video has an extra `feed_reason`:
+
+| `feed_reason` | Meaning |
+|---------------|---------|
+| `related` | Watched together with something you watched recently |
+| `subscription` | New from a channel you subscribe to |
+| `category` | Popular in a category you watch a lot |
+| `trending` | Trending platform-wide |
+| `fresh` | Recently uploaded |
+
+Your own videos and videos you finished are left out, and one creator cannot fill a whole page.
+
+### Related videos
+```
+GET /videos/<video_id>/related/
+```
+"People who watched this also watched". Recomputed nightly. Returns `[]` until enough watch history exists.
+
+### Behaviour events
+```
+POST /events/
+```
+```json
+{
+  "events": [
+    {"event_type": "impression", "session_id": "<uuid>", "video_id": "<uuid>"},
+    {"event_type": "play", "session_id": "<uuid>", "video_id": "<uuid>", "payload": {"position": 0}}
+  ]
+}
+```
+Batch of up to 100. `event_type`: `search`, `search_result_click`, `impression`, `video_click`, `play`, `pause`, `seek`, `skip`, `complete`. Auth optional. Send the same `X-Session-Id` / `session_id` for a browsing session. `201 {"recorded": 2}`. Rate limited to 120 requests/min.
+
+### Experiments
+```
+GET /experiments/variants/
+```
+`{"feed_v2": "treatment"}` — the caller's sticky variant for each active A/B test. Send `X-Session-Id` when signed out.
+
+---
+
+## Reporting Content
+
+### Report a video or comment
+```
+POST /reports/
+```
+🔒
+```json
+{"video_id": "<uuid>", "reason": "spam", "details": "optional"}
+```
+or `{"comment_id": "<uuid>", ...}` — exactly one of the two.
+
+`reason`: `spam`, `harassment`, `hate`, `violence`, `sexual`, `child_safety`, `copyright`, `misinformation`, `other`.
+
+`201 Created` for a new report; `200 OK` with the existing report if you already have an open report on it. `400` for your own content. Limited to 30 reports/hour.
+
+> The existing one-click `report` interaction (`POST /interactions/`) still works and also feeds the moderation queue, with reason `other`.
+
+### My reports
+```
+GET /reports/
+```
+🔒 Paginated list of your reports and their status (`open`, `actioned`, `dismissed`).
+
+---
+
+## Moderation
+
+Requires role `moderator` or `admin`. Everyone else gets `403`.
+
+### Queue
+```
+GET /moderation/queue/?target_type=video|comment&status=open
+```
+One row per reported item, most-reported first:
+```json
+{
+  "target_type": "video",
+  "target": {"id": "...", "title": "...", "status": "published", "creator_email": "..."},
+  "report_count": 3,
+  "reasons": {"spam": 2, "hate": 1},
+  "first_reported_at": "...",
+  "last_reported_at": "..."
+}
+```
+
+### Reports for one item
+```
+GET /moderation/reports/?video_id=<uuid>   (or ?comment_id=<uuid>, &status=)
+```
+
+### Take action
+```
+POST /moderation/actions/
+```
+```json
+{"action": "block_video", "video_id": "<uuid>", "note": "Spam links"}
+```
+
+| `action` | Target | Effect |
+|----------|--------|--------|
+| `block_video` | `video_id` | Status → `blocked` (hidden everywhere, creator can't edit or republish). Resolves open reports. Notifies creator |
+| `restore_video` | `video_id` | Back to the status it had before the block |
+| `remove_comment` | `comment_id` | Hidden (text kept for appeal). Resolves open reports. Notifies author |
+| `restore_comment` | `comment_id` | Un-hides a comment removed by moderation |
+| `suspend_user` | `user_id` | Status → `suspended`; their tokens stop working. Moderators can't suspend staff; nobody can suspend an admin |
+| `unsuspend_user` | `user_id` | Status → `active` |
+| `dismiss` | `video_id` or `comment_id` | Closes open reports with no change |
+
+`201` with the audit record and `reports_resolved`; `400` with a reason if the action doesn't apply (e.g. already blocked).
+
+### Audit log
+```
+GET /moderation/actions/?video_id=&comment_id=&user_id=
+```
+
+---
+
+## Platform Analytics
+
+Requires role `admin`. `period` is `1d`, `7d`, `28d` or `90d`.
+
+| Endpoint | Returns |
+|----------|---------|
+| `GET /analytics/overview/?period=28d` | Users (total, new, by role/status), videos (total, uploads, by status), engagement (views, completion rate, watch hours, sessions, % change vs previous period, new subscriptions), moderation backlog |
+| `GET /analytics/daily/?period=28d` | One row per day: views, watch hours, new users, uploads |
+| `GET /analytics/top-videos/?period=7d&limit=20` | Most-viewed videos with completion rate |
+| `GET /analytics/search/?period=7d&limit=20` | Top search queries and **zero-result** queries (content people want but can't find) |
+
+---
+
+## New Notification Types
+
+| Type | Triggered by |
+|------|-------------|
+| `video_blocked` | A moderator removed your video |
+| `video_restored` | A moderator restored your video |
+| `comment_removed` | A moderator removed your comment |
+
+---
+
+## Discovery, Moderation & Analytics Endpoints Summary
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `GET` | `/api/v1/videos/search/?q=` | Full-text search | — |
+| `GET` | `/api/v1/videos/trending/` | Trending videos | — |
+| `GET` | `/api/v1/videos/feed/` | For You feed | optional |
+| `GET` | `/api/v1/videos/<id>/related/` | Related videos | — |
+| `POST` | `/api/v1/events/` | Record behaviour events | optional |
+| `GET` | `/api/v1/experiments/variants/` | A/B variants | optional |
+| `POST` | `/api/v1/reports/` | Report a video/comment | 🔒 |
+| `GET` | `/api/v1/reports/` | My reports | 🔒 |
+| `GET` | `/api/v1/moderation/queue/` | Moderation queue | 🛡 moderator |
+| `GET` | `/api/v1/moderation/reports/` | Reports for an item | 🛡 moderator |
+| `POST` | `/api/v1/moderation/actions/` | Take a moderation action | 🛡 moderator |
+| `GET` | `/api/v1/moderation/actions/` | Audit log | 🛡 moderator |
+| `GET` | `/api/v1/analytics/overview/` | Platform overview | 🛡 admin |
+| `GET` | `/api/v1/analytics/daily/` | Daily series | 🛡 admin |
+| `GET` | `/api/v1/analytics/top-videos/` | Top videos | 🛡 admin |
+| `GET` | `/api/v1/analytics/search/` | Search insights | 🛡 admin |

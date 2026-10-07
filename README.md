@@ -185,6 +185,57 @@ Server runs at `http://127.0.0.1:8000`
 | `CLOUDINARY_CLOUD_NAME` | Cloudinary cloud name | ✅ |
 | `CLOUDINARY_API_KEY` | Cloudinary API key | ✅ |
 | `CLOUDINARY_API_SECRET` | Cloudinary API secret | ✅ |
+| `REDIS_URL` | Redis for cache, websockets and Celery (default `redis://localhost:6379`) | ✅ in production |
+| `CELERY_BROKER_URL` | Override the Celery broker (defaults to `REDIS_URL`) | ❌ |
+| `CLOUDINARY_AUTH_TOKEN_KEY` | Cloudinary token-auth key; makes signed video URLs expire | ❌ |
+| `SIGNED_URL_TTL_SECONDS` | Lifetime of expiring signed URLs (default 3600) | ❌ |
+| `CLOUDINARY_WEBHOOK_VERIFY` | `off`, `log` (default) or `enforce` — Cloudinary webhook signature check | ❌ |
+
+---
+
+## Database Changes (`sql/`)
+
+Every model is `managed = False`: the schema lives in Supabase and Django migrations never change it. Schema changes are numbered SQL scripts in `sql/`, applied **in order** in the Supabase SQL editor. Each one is idempotent (safe to re-run).
+
+| Script | What it does |
+|--------|--------------|
+| `001_events.sql` | Behaviour event log |
+| `002_video_search.sql` | Full-text search column + indexes |
+| `003_recommendations.sql` | Related-videos table |
+| `004_experiments.sql` | A/B testing tables |
+| `005_view_logs_partitions.sql` | Monthly `view_logs` partitions for 2026 + a default partition (view recording fails without these) |
+| `006_video_delivery_type.sql` | Tracks public vs signed-only Cloudinary storage per video |
+| `007_moderation.sql` | Content reports + moderation audit log |
+
+`sql/baseline/000_live_schema.sql` is a schema-only snapshot of production used **only** by the test suite. Never run it against Supabase.
+
+---
+
+## Background Workers (Celery)
+
+Scheduled and background jobs run on Celery with Redis as the broker. The web process does not need them to be up — anything queued from a request is best-effort and has a catch-up command — but these should run in production:
+
+```bash
+celery -A abiastream worker -l info
+celery -A abiastream beat -l info
+```
+
+| Schedule (UTC) | Task | Manual equivalent |
+|----------------|------|-------------------|
+| Daily 01:00 | Create upcoming `view_logs` monthly partitions | `python manage.py ensure_view_log_partitions` |
+| Daily 03:00 | Rebuild "related videos" from watch history | `python manage.py build_related_videos --prune` |
+| On visibility change | Move a video between public and signed-only storage | `python manage.py sync_video_delivery` (dry run; add `--apply`) |
+
+---
+
+## Running Tests
+
+Tests need a **local** PostgreSQL (they refuse to run against any other host) and never touch Cloudinary or Redis. The runner builds a throwaway `test_<name>` database from `sql/baseline/` plus every `sql/0*.sql`, so it also checks that each script applies cleanly on top of production's schema.
+
+```bash
+# TEST_DB_HOST / TEST_DB_PORT / TEST_DB_USER / TEST_DB_PASSWORD default to localhost:5432, postgres, no password
+python manage.py test --settings=abiastream.test_settings
+```
 
 ---
 
