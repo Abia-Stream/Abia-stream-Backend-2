@@ -105,6 +105,7 @@ INSTALLED_APPS = [
     'experiments',
     'moderation',
     'analytics',
+    'livestreams',
 
 ]
 
@@ -256,6 +257,9 @@ REST_FRAMEWORK = {
         # Filing content reports (moderation/). Generous for a person, caps
         # a script trying to mass-report someone off the platform.
         'reports': '30/hour',
+        # Livestreams: chat posts per viewer, and viewer heartbeats (~every 20s).
+        'live_chat': '20/min',
+        'live_heartbeat': '10/min',
     },
 }
 SPECTACULAR_SETTINGS = {
@@ -356,6 +360,12 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'recommendations.tasks.rebuild_related_videos',
         'schedule': crontab(hour=3, minute=0),
     },
+    # Livestream status/recordings/cleanup. Also happens on read, so this
+    # only keeps things tidy when nobody is watching.
+    'sync-livestreams': {
+        'task': 'livestreams.tasks.sync_livestreams',
+        'schedule': 60.0,
+    },
 }
 
 # Alternative — no extra table created
@@ -424,6 +434,11 @@ SIGNED_URL_TTL_SECONDS = config('SIGNED_URL_TTL_SECONDS', default=3600, cast=int
 
 # Cloudinary webhook signature check: off | log | enforce (videos/views.py).
 CLOUDINARY_WEBHOOK_VERIFY = config('CLOUDINARY_WEBHOOK_VERIFY', default='log')
+
+# Cloudinary Live Streaming (livestreams/). Idle timeout: how long a dropped
+# encoder can reconnect before the stream counts as ended.
+LIVESTREAM_IDLE_TIMEOUT_SECONDS = config('LIVESTREAM_IDLE_TIMEOUT_SECONDS', default=120, cast=int)
+LIVESTREAM_MAX_RUNTIME_SECONDS = config('LIVESTREAM_MAX_RUNTIME_SECONDS', default=4 * 3600, cast=int)
 
 # SMILE_IDENTITY_PARTNER_ID = config('SMILE_IDENTITY_PARTNER_ID')
 # SMILE_IDENTITY_API_KEY = config('SMILE_IDENTITY_API_KEY')

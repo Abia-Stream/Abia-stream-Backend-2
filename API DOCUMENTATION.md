@@ -2360,3 +2360,134 @@ Requires role `admin`. `period` is `1d`, `7d`, `28d` or `90d`.
 | `GET` | `/api/v1/analytics/daily/` | Daily series | 🛡 admin |
 | `GET` | `/api/v1/analytics/top-videos/` | Top videos | 🛡 admin |
 | `GET` | `/api/v1/analytics/search/` | Search insights | 🛡 admin |
+
+
+---
+
+## Livestreaming
+
+Creators broadcast from OBS (or any RTMP encoder / mobile app); viewers watch over HLS. Powered by Cloudinary Live Streaming.
+
+**Who can go live:** verified creators (identity verification approved) who have a channel. Up to 5 scheduled/live streams at a time.
+
+### Lifecycle
+
+```
+scheduled ──(encoder connects)──▶ live ──(encoder stops / "end")──▶ ended
+    └──(cancel)──▶ cancelled                      (recording → video)
+```
+
+There is no "start" button: the stream goes **live automatically** when the creator's encoder connects. If the encoder drops, the stream stays live for 2 minutes so it can reconnect; after that it ends. Maximum length 4 hours.
+
+### Create a stream
+```
+POST /livestreams/
+```
+🔒 verified creator
+```json
+{
+  "title": "Friday night Q&A",
+  "description": "optional",
+  "scheduled_start_time": "2026-10-09T19:00:00Z",
+  "thumbnail_url": "https://res.cloudinary.com/...",
+  "chat_enabled": true,
+  "save_recording": true,
+  "publish_recording": false
+}
+```
+`201` returns the **owner view**, which includes the encoder settings:
+```json
+{
+  "id": "…", "status": "scheduled",
+  "rtmp_url": "rtmp://live.cloudinary.com/streams",
+  "stream_key": "…",
+  "hls_url": "https://…_hls.m3u8",
+  "save_recording": true, "publish_recording": false,
+  "...": "public fields below"
+}
+```
+> **OBS setup:** Settings → Stream → Service: *Custom*, Server: `rtmp_url`, Stream Key: `stream_key`. Treat the key like a password — anyone with it can broadcast on this stream. It is only ever returned to the owner.
+
+`403` with a reason if the user isn't verified or has no channel.
+
+`save_recording` is fixed at creation. `publish_recording: true` publishes the recording to the channel automatically; otherwise it lands as a ready-to-publish video in *My Videos*.
+
+### Watch / poll a stream
+```
+GET /livestreams/<id>/
+```
+Public. Poll every ~10 s on the watch page (or use the websocket below) to see it go live.
+
+| Field | Notes |
+|-------|-------|
+| `status` | `scheduled`, `live`, `ended` (`cancelled`/`failed` are hidden from the public) |
+| `playback_url` | HLS `.m3u8` — **only set while `live`**. Play with hls.js / native Safari |
+| `viewer_count`, `max_concurrent_viewers` | |
+| `creator` | `{id, channel_name, channel_slug, is_verified}` |
+| `recording_video_id` | Set once the recording is published — link to the normal video page |
+
+### Lists
+```
+GET /livestreams/                  live now (most viewers first), then upcoming
+GET /livestreams/?status=live|scheduled|ended
+GET /livestreams/me/               🔒 the creator's own streams, owner view
+```
+
+### Creator controls (owner only)
+```
+PATCH /livestreams/<id>/           title, description, scheduled_start_time, thumbnail_url,
+                                   chat_enabled, publish_recording (only publish_recording after it ends)
+POST  /livestreams/<id>/end/       stop now (stopping the encoder also ends it)
+POST  /livestreams/<id>/cancel/    before it goes live
+```
+
+### Viewer count
+```
+POST /livestreams/<id>/heartbeat/
+{"session_id": "<uuid, stable per tab>"}
+```
+Call every ~20 s while the player is open. Returns `{"status": "live", "viewer_count": 12}`. A viewer stops counting a minute after their last heartbeat.
+
+### Live chat
+```
+GET  /livestreams/<id>/chat/                    latest 100, oldest first
+GET  /livestreams/<id>/chat/?after=<message_id> newer than a message (polling)
+POST /livestreams/<id>/chat/   {"content": "…"} 🔒 1–500 chars, 20/min
+DELETE /livestreams/chat/<message_id>/          🔒 author, stream owner, or moderator
+```
+Message: `{"id", "livestream_id", "user": {"id", "display_name", "avatar_url"}, "content", "created_at"}`. Chat is open while the stream is scheduled or live, and read-only after.
+
+### Websocket (optional, no auth needed)
+```
+wss://<host>/ws/livestream/<id>/
+```
+Pushes `{"type": "chat_message", "message": {...}}`, `{"type": "chat_message_deleted", "message_id"}`, `{"type": "status_changed", "status"}`, `{"type": "recording_ready", "video_id"}`. Read-only: post chat via REST. If the socket can't connect, fall back to polling `GET /chat/?after=` and the stream detail — everything is available there too.
+
+### Moderation
+Moderators can use `POST /moderation/actions/` with:
+- `{"action": "end_livestream", "livestream_id": "…", "note": "…"}` — ends the stream; the recording is kept **unpublished** for review; the creator is notified.
+- `{"action": "remove_chat_message", "chat_message_id": "…"}`
+
+Both appear in the audit log (`GET /moderation/actions/?livestream_id=`).
+
+### New notification types
+| Type | Triggered by |
+|------|-------------|
+| `livestream_started` | A channel you subscribe to went live (`data.livestream_id`) |
+| `livestream_ended_by_moderator` | A moderator ended your stream |
+
+### Livestream Endpoints Summary
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `GET` | `/api/v1/livestreams/` | Live and upcoming streams | — |
+| `POST` | `/api/v1/livestreams/` | Create a stream | 🔒 verified creator |
+| `GET` | `/api/v1/livestreams/me/` | My streams | 🔒 |
+| `GET` | `/api/v1/livestreams/<id>/` | Stream detail | — |
+| `PATCH` | `/api/v1/livestreams/<id>/` | Edit stream | 🔒 owner |
+| `POST` | `/api/v1/livestreams/<id>/end/` | End stream | 🔒 owner |
+| `POST` | `/api/v1/livestreams/<id>/cancel/` | Cancel stream | 🔒 owner |
+| `POST` | `/api/v1/livestreams/<id>/heartbeat/` | Viewer heartbeat | — |
+| `GET` | `/api/v1/livestreams/<id>/chat/` | Chat messages | — |
+| `POST` | `/api/v1/livestreams/<id>/chat/` | Send chat message | 🔒 |
+| `DELETE` | `/api/v1/livestreams/chat/<message_id>/` | Delete chat message | 🔒 |

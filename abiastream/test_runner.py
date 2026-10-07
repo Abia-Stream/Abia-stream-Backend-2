@@ -55,6 +55,19 @@ def _block_cloudinary_network():
 
     urllib3.PoolManager.urlopen = guarded
 
+    # `requests` (used by livestreams/cloudinary_live.py) goes through its own
+    # connection pools, not PoolManager.urlopen, so guard it separately.
+    import requests.adapters
+
+    original_send = requests.adapters.HTTPAdapter.send
+
+    def guarded_send(self, request, *args, **kwargs):
+        if 'cloudinary.com' in request.url:
+            raise NetworkDisabled(f'Cloudinary network call in tests: {request.method} {request.url}')
+        return original_send(self, request, *args, **kwargs)
+
+    requests.adapters.HTTPAdapter.send = guarded_send
+
 
 class SchemaTestRunner(DiscoverRunner):
 

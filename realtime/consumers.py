@@ -168,3 +168,42 @@ class VideoStatusConsumer(AsyncWebsocketConsumer):
             return Video.objects.get(id=self.video_id).status
         except Video.DoesNotExist:
             return None
+
+class LiveStreamConsumer(AsyncWebsocketConsumer):
+    """
+    Read-only feed for one livestream: chat messages, deletions, status
+    changes, recording ready. Open to signed-out viewers, like the stream.
+    Frontend connects to: wss://domain/ws/livestream/<livestream_id>/
+
+    Messages: {"type": "<event>", ...payload} where event is one of
+    chat_message, chat_message_deleted, status_changed, recording_ready.
+    Posting chat goes through REST (POST /livestreams/<id>/chat/) so auth,
+    rate limits and moderation live in one place.
+    """
+
+    async def connect(self):
+        from livestreams.realtime import group_name
+
+        self.livestream_id = str(self.scope['url_route']['kwargs']['livestream_id'])
+        if not await self.stream_exists():
+            await self.close(code=4004)
+            return
+        self.group_name = group_name(self.livestream_id)
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        if hasattr(self, 'group_name'):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+    async def receive(self, text_data):
+        pass  # read-only consumer
+
+    async def livestream_event(self, event):
+        await self.send(text_data=json.dumps(
+            {'type': event['event'], **event['payload']}, default=str))
+
+    @database_sync_to_async
+    def stream_exists(self):
+        from livestreams.models import LiveStream
+        return LiveStream.objects.filter(id=self.livestream_id).exists()

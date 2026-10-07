@@ -101,7 +101,8 @@ def _check_user_target(moderator, target):
         raise ModerationError('Only an admin can suspend a moderator.')
 
 
-def apply_action(moderator, action, *, video=None, comment=None, user=None, note=None):
+def apply_action(moderator, action, *, video=None, comment=None, user=None, note=None,
+                 livestream=None, chat_message=None):
     """
     Apply one moderator decision. Returns (ModerationAction, reports_resolved).
     Raises ModerationError for an invalid request; nothing is changed then.
@@ -202,20 +203,41 @@ def apply_action(moderator, action, *, video=None, comment=None, user=None, note
             if resolved == 0:
                 raise ModerationError('There are no open reports to dismiss.')
 
+        elif action == Action.END_LIVESTREAM:
+            from livestreams.services import LiveStreamError, end_stream
+            if livestream is None:
+                raise ModerationError('livestream_id is required.')
+            try:
+                # Recording is kept but not published, for review.
+                livestream = end_stream(livestream, by_moderator=True)
+            except LiveStreamError as exc:
+                raise ModerationError(str(exc))
+            user = livestream.creator
+
+        elif action == Action.REMOVE_CHAT_MESSAGE:
+            from livestreams.services import hide_chat_message
+            if chat_message is None:
+                raise ModerationError('chat_message_id is required.')
+            if not hide_chat_message(chat_message):
+                raise ModerationError('Message is already removed.')
+            livestream, user = chat_message.livestream, chat_message.user
+
         else:
             raise ModerationError(f'Unknown action: {action}.')
 
         record = ModerationAction.objects.create(
             moderator=moderator, action=action,
             video=video, comment=comment, target_user=user,
+            livestream=livestream, chat_message=chat_message,
             note=note, metadata=metadata,
         )
 
-    _notify_affected(action, video=video, comment=comment, user=user, note=note)
+    _notify_affected(action, video=video, comment=comment, user=user, note=note,
+                     livestream=livestream)
     return record, resolved
 
 
-def _notify_affected(action, *, video, comment, user, note):
+def _notify_affected(action, *, video, comment, user, note, livestream=None):
     reason = f' Reason: {note}' if note else ''
     if action == Action.BLOCK_VIDEO:
         _notify(user, 'video_blocked', 'Video removed',
@@ -230,3 +252,7 @@ def _notify_affected(action, *, video, comment, user, note):
                 f'One of your comments was removed for violating the community '
                 f'guidelines.{reason}',
                 {'comment_id': str(comment.id), 'video_id': str(comment.video_id)})
+    elif action == Action.END_LIVESTREAM:
+        _notify(user, 'livestream_ended_by_moderator', 'Stream ended',
+                f'Your stream "{livestream.title}" was ended by a moderator. The recording '
+                f'is kept unpublished.{reason}', {'livestream_id': str(livestream.id)})

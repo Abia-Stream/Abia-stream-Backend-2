@@ -73,6 +73,8 @@ class ModerationAction(models.Model):
         SUSPEND_USER = 'suspend_user', 'Suspend user'
         UNSUSPEND_USER = 'unsuspend_user', 'Unsuspend user'
         DISMISS = 'dismiss', 'Dismiss reports'
+        END_LIVESTREAM = 'end_livestream', 'End livestream'
+        REMOVE_CHAT_MESSAGE = 'remove_chat_message', 'Remove chat message'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     moderator = models.ForeignKey(
@@ -91,6 +93,14 @@ class ModerationAction(models.Model):
     target_user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
         db_column='target_user_id', related_name='moderation_actions_received',
+    )
+    livestream = models.ForeignKey(
+        'livestreams.LiveStream', on_delete=models.SET_NULL, null=True, blank=True,
+        db_column='livestream_id', related_name='moderation_actions',
+    )
+    chat_message = models.ForeignKey(
+        'livestreams.ChatMessage', on_delete=models.SET_NULL, null=True, blank=True,
+        db_column='chat_message_id', related_name='moderation_actions',
     )
     note = models.TextField(null=True, blank=True)
     metadata = models.JSONField(default=dict, blank=True)

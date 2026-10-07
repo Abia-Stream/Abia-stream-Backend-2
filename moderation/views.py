@@ -196,8 +196,10 @@ class ModerationActionView(APIView):
 
     POST /api/v1/moderation/actions/
       {"action": "block_video|restore_video|remove_comment|restore_comment|
-                  suspend_user|unsuspend_user|dismiss",
-       "video_id" | "comment_id" | "user_id": "<uuid>",
+                  suspend_user|unsuspend_user|dismiss|
+                  end_livestream|remove_chat_message",
+       "video_id" | "comment_id" | "user_id" | "livestream_id" |
+       "chat_message_id": "<uuid>",
        "note": "optional; included in the notification to the creator"}
 
     block_video / remove_comment / dismiss also resolve the target's open
@@ -212,7 +214,13 @@ class ModerationActionView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        video = comment = user = None
+        video = comment = user = livestream = chat_message = None
+        if data.get('livestream_id'):
+            from livestreams.models import LiveStream
+            livestream = get_object_or_404(LiveStream, id=data['livestream_id'])
+        if data.get('chat_message_id'):
+            from livestreams.models import ChatMessage
+            chat_message = get_object_or_404(ChatMessage, id=data['chat_message_id'])
         if data.get('video_id'):
             video = get_object_or_404(Video, id=data['video_id'])
         if data.get('comment_id'):
@@ -224,6 +232,7 @@ class ModerationActionView(APIView):
             record, resolved = apply_action(
                 request.user, data['action'],
                 video=video, comment=comment, user=user, note=data.get('note'),
+                livestream=livestream, chat_message=chat_message,
             )
         except ModerationError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -242,6 +251,8 @@ class ModerationActionView(APIView):
             actions = actions.filter(comment_id=params['comment_id'])
         if params.get('user_id'):
             actions = actions.filter(target_user_id=params['user_id'])
+        if params.get('livestream_id'):
+            actions = actions.filter(livestream_id=params['livestream_id'])
 
         paginator = StandardPagination()
         page = paginator.paginate_queryset(actions, request)
