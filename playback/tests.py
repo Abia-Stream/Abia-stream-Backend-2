@@ -42,6 +42,24 @@ class RecordViewTests(TestCase):
         self.assertEqual(video.views_count, 1)
 
 
+class CreatorTotalViewsTests(TestCase):
+
+    def test_profile_total_views_counts_once_per_session_from_null(self):
+        from profiles.models import Profile
+        creator = make_user()
+        profile = Profile.objects.create(user=creator)  # total_views starts NULL
+        video = make_video(creator)
+        client = client_for()
+        payload = {'video_id': str(video.id), 'session_id': str(uuid.uuid4())}
+
+        client.post('/api/v1/playback/view/', payload, format='json')
+        client.post('/api/v1/playback/view/', payload, format='json')  # refresh
+        client.post('/api/v1/playback/view/', {'video_id': str(video.id)}, format='json')
+
+        profile.refresh_from_db()
+        self.assertEqual(profile.total_views, 2)
+
+
 class ProgressTests(TestCase):
 
     def test_progress_creates_history_and_autocompletes(self):

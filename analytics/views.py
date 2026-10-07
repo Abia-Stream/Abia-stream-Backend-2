@@ -45,8 +45,12 @@ def _change(current, previous):
     return round((current - previous) / previous * 100, 1)
 
 
-def _view_stats(start, end):
-    stats = ViewLog.objects.filter(timestamp__gte=start, timestamp__lt=end).aggregate(
+def _view_stats(start, end, include_end=False):
+    # The current period ends at "now" and must include it: on a coarse clock a
+    # row written just before the request can carry exactly that timestamp.
+    # The previous period ends where the current one starts, so it excludes it.
+    upper = {'timestamp__lte' if include_end else 'timestamp__lt': end}
+    stats = ViewLog.objects.filter(timestamp__gte=start, **upper).aggregate(
         views=Count('id'),
         completed=Count('id', filter=Q(completed=True)),
         watch_seconds=Coalesce(Sum('watch_duration_seconds'), 0),
@@ -84,7 +88,7 @@ class OverviewView(APIView):
             created_at__gte=prev_start, created_at__lt=start).exclude(
             status=Video.Status.DRAFT).count()
 
-        views = _view_stats(start, end)
+        views = _view_stats(start, end, include_end=True)
         prev_views = _view_stats(prev_start, start)
 
         new_subs = Subscription.objects.filter(created_at__gte=start).count()
@@ -144,7 +148,7 @@ class DailyActivityView(APIView):
             }
 
         views = by_day(
-            ViewLog.objects.filter(timestamp__gte=start, timestamp__lt=end), 'timestamp',
+            ViewLog.objects.filter(timestamp__gte=start, timestamp__lte=end), 'timestamp',
             views=Count('id'), watch_seconds=Coalesce(Sum('watch_duration_seconds'), 0))
         users = by_day(User.objects.filter(created_at__gte=start), 'created_at',
                        n=Count('id'))
@@ -187,7 +191,7 @@ class TopVideosView(APIView):
             limit = 20
 
         rows = list(
-            ViewLog.objects.filter(timestamp__gte=start, timestamp__lt=end)
+            ViewLog.objects.filter(timestamp__gte=start, timestamp__lte=end)
             .values('video_id')
             .annotate(views=Count('id'),
                       completed=Count('id', filter=Q(completed=True)),
@@ -233,7 +237,7 @@ class SearchInsightsView(APIView):
             limit = 20
 
         searches = Event.objects.filter(
-            event_type=Event.Type.SEARCH, occurred_at__gte=start, occurred_at__lt=end)
+            event_type=Event.Type.SEARCH, occurred_at__gte=start, occurred_at__lte=end)
 
         def top(queryset):
             return [

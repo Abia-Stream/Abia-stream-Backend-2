@@ -5,7 +5,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from django.db.models import F
+from django.db.models import F, Value
+from django.db.models.functions import Coalesce
 from playback.models import WatchHistory, ViewLog
 from playback.serializers import (
     WatchHistorySerializer,
@@ -14,6 +15,7 @@ from playback.serializers import (
 )
 from videos.models import Video
 from abiastream.pagination import StandardPagination
+from profiles.models import Profile
 from datetime import timedelta
 
 # A repeat view from the same session inside this window does not re-count.
@@ -198,10 +200,15 @@ class RecordViewView(APIView):
             timestamp=timezone.now(),
         )
 
-        # Increment video view count
+        # Increment the video's view count and the creator's profile total.
+        # Both follow the same dedupe rule so they stay consistent.
         if not is_repeat:
             Video.objects.filter(id=video.id).update(
                 views_count=F('views_count') + 1
+            )
+            Profile.objects.filter(user=video.creator).update(
+                # Profiles created through the ORM start with NULL, not 0.
+                total_views=Coalesce(F('total_views'), Value(0)) + 1
             )
 
         return Response(
