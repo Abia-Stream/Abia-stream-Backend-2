@@ -3,11 +3,18 @@ from comments.models import Comment
 
 
 class CommentUserSerializer(serializers.Serializer):
-    """Minimal user info for comment display."""
+    """
+    Minimal user info for comment display. Comments are public, so this must
+    never include the email address.
+    """
     id = serializers.UUIDField()
-    email = serializers.EmailField()
+    display_name = serializers.SerializerMethodField()
     full_name = serializers.SerializerMethodField()
     avatar_url = serializers.SerializerMethodField()
+
+    def get_display_name(self, obj):
+        from accounts.display import display_name
+        return display_name(obj)
 
     def get_full_name(self, obj):
         try:
