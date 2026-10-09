@@ -5,13 +5,14 @@ import re
 
 
 class CreatorChannelSerializer(serializers.ModelSerializer):
-    owner_email = serializers.EmailField(source='user.email', read_only=True)
+    """Public channel view. No owner email: channel pages are public."""
+    owner_id = serializers.UUIDField(source='user.id', read_only=True)
     owner_role = serializers.CharField(source='user.role', read_only=True)
 
     class Meta:
         model = CreatorChannel
         fields = [
-            'id', 'owner_email', 'owner_role',
+            'id', 'owner_id', 'owner_role',
             'channel_name', 'channel_slug',
             'banner_url', 'channel_description',
             'subscriber_count', 'total_videos',
@@ -22,6 +23,14 @@ class CreatorChannelSerializer(serializers.ModelSerializer):
             'id', 'channel_slug', 'subscriber_count',
             'total_videos', 'is_verified', 'created_at', 'updated_at',
         ]
+
+
+class OwnerChannelSerializer(CreatorChannelSerializer):
+    """The owner's own channel (channels/me, create): also their email."""
+    owner_email = serializers.EmailField(source='user.email', read_only=True)
+
+    class Meta(CreatorChannelSerializer.Meta):
+        fields = CreatorChannelSerializer.Meta.fields + ['owner_email']
 
 
 class CreateChannelSerializer(serializers.ModelSerializer):
