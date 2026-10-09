@@ -6,6 +6,12 @@ What changed in the backend, newest first. Endpoint details live in
 
 ---
 
+## 2026-10-09: Best-frame thumbnails for direct uploads
+
+Direct uploads kept the frontend's frame-at-1-second thumbnail, so only server-side uploads got the best-frame one. Now frame thumbnails are upgraded to the best frame once Cloudinary has generated it (it answers "not ready" for up to a minute on larger videos, verified in production); the old thumbnail stays until then. Custom image thumbnails are never touched. `refresh_auto_thumbnails` backfills existing videos (dry run by default).
+
+---
+
 ## 2026-10-09: Personalization groundwork (roadmap Stage 4)
 
 Built so it switches on as real data arrives; **nothing changes for users until an experiment is turned on**.
