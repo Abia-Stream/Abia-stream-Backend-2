@@ -33,6 +33,7 @@ from videos.delivery import (
     desired_delivery_type, delivery_type_from_url, has_asset,
 )
 from videos.ranking import trending_video_ids
+from videos.thumbnails import upgrade_when_ready, warm as warm_thumbnail
 from videos.tasks import sync_video_delivery_type
 from abiastream.tasks import enqueue
 
@@ -266,6 +267,9 @@ class VideoFromCloudinaryView(APIView):
         )
 
         attach_tags(video, tag_ids)
+        # Start building the best-frame thumbnail; it replaces a frontend
+        # frame (e.g. at 1 s) once ready (videos/thumbnails.py).
+        warm_thumbnail(video)
         # A non-public video uploaded without the signed `type` lands as a
         # public asset; move it.
         queue_delivery_sync(video)
@@ -424,8 +428,10 @@ class VideoDetailView(APIView):
             if not screen_before_publish(video):
                 # Held for review: keep the other edits, drop the publish.
                 serializer.validated_data.pop('status')
-            elif not video.published_at:
-                serializer.validated_data['published_at'] = timezone.now()
+            else:
+                upgrade_when_ready(video)
+                if not video.published_at:
+                    serializer.validated_data['published_at'] = timezone.now()
 
         serializer.save()
 
@@ -485,6 +491,7 @@ class PublishVideoView(APIView):
             video.refresh_from_db()
             return Response(VideoSerializer(video, context={'request': request}).data)
 
+        upgrade_when_ready(video)
         video.status = Video.Status.PUBLISHED
         if not video.published_at:
             video.published_at = timezone.now()
@@ -630,6 +637,8 @@ class UpdateDraftView(APIView):
             video.cloudinary_delivery_type = delivery_type_from_url(video.cloudinary_url)
 
         video.save()
+        if 'cloudinary_url' in request.data:
+            warm_thumbnail(video)
 
         # Update tags if provided
         tag_ids = request.data.get('tag_ids', [])
@@ -696,6 +705,7 @@ class CloudinaryWebhookView(APIView):
                     # ── Automatic checks (fingerprint, text) ─────────────
                     from moderation.auto import check_video
                     video.refresh_from_db()
+                    upgrade_when_ready(video)
                     if check_video(video)['held']:
                         from realtime.broadcaster import broadcast_video_status
                         broadcast_video_status(video.id, 'held')

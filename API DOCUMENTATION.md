@@ -2539,7 +2539,7 @@ Signals: `reupload_of_blocked`, `duplicate_of_other_creator`, `spam_links`, `con
 
 ## Thumbnails
 
-Auto-generated thumbnails now use the most visually interesting frame of the video (Cloudinary `so_auto`) instead of the frame at 1 second. Applies to new uploads; existing thumbnails are unchanged.
+Auto-generated thumbnails now use the most visually interesting frame of the video (Cloudinary `so_auto`) instead of the frame at 1 second. This applies to every upload path: when a direct upload sends a thumbnail that is just a frame of the video (e.g. `so_1`), the backend switches it to the best frame once Cloudinary has generated it (when processing finishes, or at publish). Until then the original thumbnail stays, so there's never a broken image. A thumbnail the creator uploaded as an image is never replaced. `python manage.py refresh_auto_thumbnails [--apply]` does the same for existing videos.
 
 ---
 
