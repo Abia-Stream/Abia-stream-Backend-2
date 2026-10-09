@@ -252,3 +252,96 @@ class SearchInsightsView(APIView):
             'top_queries': top(searches),
             'zero_result_queries': top(searches.filter(payload__result_count=0)),
         })
+
+
+def _two_proportion_test(success_a, total_a, success_b, total_b):
+    """Two-sided z-test for a difference in rates. Returns (z, p) or (None, None)."""
+    import math
+    if not total_a or not total_b:
+        return None, None
+    pooled = (success_a + success_b) / (total_a + total_b)
+    se = math.sqrt(pooled * (1 - pooled) * (1 / total_a + 1 / total_b))
+    if se == 0:
+        return None, None
+    z = (success_b / total_b - success_a / total_a) / se
+    p = math.erfc(abs(z) / math.sqrt(2))
+    return round(z, 3), round(p, 4)
+
+
+class ExperimentResultsView(APIView):
+    """
+    How each arm of an A/B experiment is doing.
+
+    GET /api/v1/analytics/experiments/<key>/?period=7d|28d|90d
+
+    feed_ranker: of the feed items shown, how many were watched within 30
+    minutes (watch rate). search_personalization: of the searches, how many
+    led to watching one of the results. `comparison` is treatment vs control
+    with a two-proportion z-test; treat p >= 0.05 as "no difference yet".
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request, key):
+        from django.shortcuts import get_object_or_404
+        from experiments.models import Experiment, ExperimentAssignment
+        from recommendations.ranker import watched_after
+
+        experiment = get_object_or_404(Experiment, key=key)
+        try:
+            period, start, end, _ = _period(request, default='28d')
+        except ValueError as exc:
+            return _bad_period(exc)
+
+        variants = {name: {'assigned': 0} for name in (experiment.variants or [])}
+        for variant, n in (ExperimentAssignment.objects.filter(experiment=experiment)
+                           .values_list('variant').annotate(n=Count('id'))):
+            variants.setdefault(variant, {})['assigned'] = n
+
+        if key == 'feed_ranker':
+            event_type, unit = Event.Type.FEED_SERVED, 'items_shown'
+        elif key == 'search_personalization':
+            event_type, unit = Event.Type.SEARCH, 'searches'
+        else:
+            event_type, unit = None, None
+
+        if event_type:
+            events = list(Event.objects.filter(
+                event_type=event_type, occurred_at__gte=start, occurred_at__lte=end,
+                payload__has_key='variant'))
+            watched = watched_after(events)
+            for name in variants:
+                variants[name].update({unit: 0, 'watched': 0})
+            for event in events:
+                name = (event.payload or {}).get('variant')
+                if name not in variants:
+                    continue
+                seen = {str(v) for v in watched.get(event.id, ())}
+                if event_type == Event.Type.FEED_SERVED:
+                    ids = [item.get('video_id') for item in event.payload.get('items', [])]
+                    variants[name][unit] += len(ids)
+                    variants[name]['watched'] += sum(1 for i in ids if i in seen)
+                else:
+                    variants[name][unit] += 1
+                    ids = set(event.payload.get('result_ids') or [])
+                    variants[name]['watched'] += 1 if ids & seen else 0
+            for stats in variants.values():
+                total = stats.get(unit) or 0
+                stats['watch_rate'] = round(stats['watched'] / total, 4) if total else None
+
+        comparison = None
+        control, treatment = variants.get('control'), variants.get('treatment')
+        if unit and control and treatment:
+            z, p = _two_proportion_test(control['watched'], control[unit],
+                                        treatment['watched'], treatment[unit])
+            comparison = {
+                'lift': (round(treatment['watch_rate'] / control['watch_rate'] - 1, 4)
+                         if control['watch_rate'] and treatment['watch_rate'] is not None else None),
+                'z': z, 'p_value': p,
+                'significant': p is not None and p < 0.05,
+            }
+
+        return Response({
+            'experiment': key, 'is_active': experiment.is_active, 'period': period,
+            'measure': unit and f'watched / {unit}', 'variants': variants,
+            'comparison': comparison,
+        })

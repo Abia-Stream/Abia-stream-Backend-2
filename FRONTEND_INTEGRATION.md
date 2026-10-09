@@ -81,7 +81,13 @@ Paginated like other lists. Each video has an extra **`feed_reason`** for UI cop
 | `fresh` | "New" |
 
 Also available: `GET /videos/trending/?days=7` (array, max 50) and
-`GET /videos/<id>/related/` (array for "Up next"; empty until enough watch history exists).
+**`GET /videos/<id>/up-next/?limit=10`** for the "Up next" rail on the watch page — it always returns
+something (what viewers watched next → related → same creator → For You), each with `up_next_reason`.
+Prefer it over `GET /videos/<id>/related/`, which is empty until enough watch history exists.
+
+**Recording views matters more than anything else on this list:** call `POST /playback/view/`
+(with `session_id`) when playback starts. Trending, related, up next and the learned ranker are all
+built from these views, and production currently has none.
 
 ---
 
@@ -250,7 +256,7 @@ Blocked videos show `status: "blocked"` in the creator's *My Videos* and can't b
 - [ ] §1 Comments/channels: `display_name`, `owner_id` (**before backend #4 merges**)
 - [ ] §2 HLS player with `streaming_url`
 - [ ] §3 `?visibility=` + `type` on direct uploads
-- [ ] §4 For You feed on home, trending, related ("Up next")
+- [ ] §4 For You feed on home, trending, `up-next` rail; **`POST /playback/view/` on play**
 - [ ] §5 Search
 - [ ] §6 Session id header + events
 - [ ] §7 Experiment variants

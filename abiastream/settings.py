@@ -365,6 +365,15 @@ CELERY_BEAT_SCHEDULE = {
     },
     # Livestream status/recordings/cleanup. Also happens on read, so this
     # only keeps things tidy when nobody is watching.
+    # Stage 4 personalization (recommendations/ranker.py, up-next).
+    'build-video-transitions': {
+        'task': 'recommendations.tasks.build_video_transitions',
+        'schedule': crontab(hour=3, minute=30),
+    },
+    'train-feed-ranker': {
+        'task': 'recommendations.tasks.train_feed_ranker',
+        'schedule': crontab(hour=4, minute=0),
+    },
     # Fingerprint videos missed by upload-time checks (Cloudinary down, etc.).
     'scan-videos': {
         'task': 'moderation.tasks.scan_videos',

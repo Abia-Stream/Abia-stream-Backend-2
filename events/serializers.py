@@ -5,7 +5,9 @@ from events.models import Event
 class EventSerializer(serializers.Serializer):
     """A single client-reported event."""
 
-    event_type = serializers.ChoiceField(choices=Event.Type.choices)
+    # Server-logged types are not accepted from clients.
+    event_type = serializers.ChoiceField(choices=[
+        choice for choice in Event.Type.choices if choice[0] != Event.Type.FEED_SERVED])
     session_id = serializers.UUIDField()
     video_id = serializers.UUIDField(required=False, allow_null=True)
     payload = serializers.JSONField(required=False, default=dict)

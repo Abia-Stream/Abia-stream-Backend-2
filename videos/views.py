@@ -44,6 +44,10 @@ UPLOAD_ROLES = ['viewer', 'creator', 'admin']
 # Tune against SEARCH_RESULT_CLICK events once they exist.
 SEARCH_WEIGHT_RELEVANCE = 1.0
 SEARCH_WEIGHT_POPULARITY = 0.1
+# Personalised search (Stage 4, `search_personalization` experiment): a nudge
+# toward the viewer's categories and creators, small next to relevance.
+SEARCH_BOOST_CATEGORY = 0.15
+SEARCH_BOOST_CREATOR = 0.25
 
 # Trending weights live in videos/ranking.py.
 
@@ -828,6 +832,27 @@ class UpdateVideoThumbnailFromCloudinaryView(APIView):
 
 # ── Search ────────────────────────────────────────────────────────────────────
 
+def personalise_search(queryset, user):
+    """Add the viewer's category/creator affinity to the search score."""
+    from django.db.models import Case, FloatField, When
+    from recommendations.ranker import ViewerContext
+
+    context = ViewerContext.for_user(user)
+    top_categories = [c for c, share in sorted(
+        context.category_shares.items(), key=lambda kv: -kv[1])[:3] if share >= 0.2]
+    creators = set(context.subscribed_creators) | {
+        c for c, n in context.creator_counts.items() if n >= 2}
+    if not top_categories and not creators:
+        return queryset.annotate(final_score=F('score'))
+    return queryset.annotate(final_score=F('score') + Case(
+        When(category_id__in=top_categories, then=Value(SEARCH_BOOST_CATEGORY)),
+        default=Value(0.0), output_field=FloatField(),
+    ) + Case(
+        When(creator_id__in=creators, then=Value(SEARCH_BOOST_CREATOR)),
+        default=Value(0.0), output_field=FloatField(),
+    ))
+
+
 class VideoSearchView(APIView):
     """
     Full-text search over published public videos.
@@ -872,8 +897,17 @@ class VideoSearchView(APIView):
             )
             .select_related('category', 'creator')
             .prefetch_related('tags')
-            .order_by('-score', '-published_at')
         )
+
+        variant = None
+        if request.user.is_authenticated:
+            from experiments.utils import get_variant
+            variant = get_variant(request, 'search_personalization')
+        if variant == 'treatment':
+            queryset = personalise_search(queryset, request.user)
+        else:
+            queryset = queryset.annotate(final_score=F('score'))
+        queryset = queryset.order_by('-final_score', '-published_at')
 
         paginator = StandardPagination()
         page = paginator.paginate_queryset(queryset, request)
@@ -887,6 +921,8 @@ class VideoSearchView(APIView):
             payload={
                 'query': query_text,
                 'result_count': paginator.page.paginator.count,
+                'variant': variant,
+                'result_ids': [str(v.id) for v in page],
             },
         )
 
