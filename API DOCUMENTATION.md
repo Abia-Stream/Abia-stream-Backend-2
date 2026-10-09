@@ -170,7 +170,7 @@ POST /auth/login/
   "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
     "user": {
         "id": "2483bf15-de2c-4d7f-b31e-5eb9ab780bed",
-        "email": "promzzygod90@gmail.com",
+        "email": "user@example.com",
         "role": "viewer",
         "full_name": "UHAa UCHEEE",
         "avatar_url": "https://lh3.googleusercontent.com/a/ACg8ocKcK44BsAJpZY1cY0sv6YaV9j8ZOEJnfJ7izuhftPFJCJQpXtsi=s96-c"
@@ -1392,7 +1392,7 @@ GET /channels/
 [
   {
     "id": "uuid",
-    "owner_email": "creator@example.com",
+    "owner_id": "uuid",
     "owner_role": "creator",
     "channel_name": "Abia Vibes",
     "channel_slug": "abia-vibes",
@@ -1443,6 +1443,7 @@ Authorization: Bearer <access_token>
 ```json
 {
   "id": "uuid",
+  "owner_id": "uuid",
   "owner_email": "creator@example.com",
   "owner_role": "creator",
   "channel_name": "Abia Vibes",
@@ -2539,3 +2540,12 @@ Signals: `reupload_of_blocked`, `duplicate_of_other_creator`, `spam_links`, `con
 ## Thumbnails
 
 Auto-generated thumbnails now use the most visually interesting frame of the video (Cloudinary `so_auto`) instead of the frame at 1 second. Applies to new uploads; existing thumbnails are unchanged.
+
+---
+
+## Privacy: email addresses
+
+Email addresses are never shown to other users. Anywhere one user appears to another (comments, live chat, notifications) the API uses a **display name**: the profile's `full_name`, else the user's channel name, else `"Abia Stream user"`.
+
+- Comment authors: `user` is `{id, display_name, full_name, avatar_url}` (no `email`).
+- Channels: public responses have `owner_id` instead of `owner_email`. `owner_email` is only in the owner's own responses (`POST /channels/create/`, `GET/PATCH /channels/me/`).

@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
 from django.db.models import F
 
+from accounts.display import display_name
 from comments.models import Comment, CommentLike
 from comments.serializers import (
     CommentSerializer, ReplySerializer, CreateCommentSerializer
@@ -86,7 +87,7 @@ class VideoCommentsView(APIView):
                     user=parent.user,
                     notification_type='comment_reply',
                     title='New Reply',
-                    message=f'{request.user.email} replied to your comment.',
+                    message=f'{display_name(request.user)} replied to your comment.',
                     data={
                         'video_id': str(video_id),
                         'comment_id': str(comment.id),
@@ -100,7 +101,7 @@ class VideoCommentsView(APIView):
                     user=video.creator,
                     notification_type='new_comment',
                     title='New Comment',
-                    message=f'{request.user.email} commented on your video "{video.title}".',
+                    message=f'{display_name(request.user)} commented on your video "{video.title}".',
                     data={
                         'video_id': str(video_id),
                         'comment_id': str(comment.id),
@@ -238,7 +239,7 @@ class LikeCommentView(APIView):
                     user=comment.user,
                     notification_type='comment_like',
                     title='Comment Liked',
-                    message=f'{request.user.email} liked your comment.',
+                    message=f'{display_name(request.user)} liked your comment.',
                     data={
                         'comment_id': str(comment_id),
                         'video_id': str(comment.video_id),

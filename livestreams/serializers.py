@@ -97,15 +97,8 @@ class ChatUserSerializer(serializers.Serializer):
     avatar_url = serializers.SerializerMethodField()
 
     def get_display_name(self, user):
-        try:
-            if user.profile.full_name:
-                return user.profile.full_name
-        except Exception:  # noqa: BLE001 - no profile
-            pass
-        try:
-            return user.channel.channel_name
-        except Exception:  # noqa: BLE001 - no channel
-            return 'Viewer'
+        from accounts.display import display_name
+        return display_name(user)
 
     def get_avatar_url(self, user):
         try:

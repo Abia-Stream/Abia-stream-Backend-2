@@ -16,6 +16,7 @@ from creator_channels.models import CreatorChannel
 from subscriptions.models import Subscription
 from creator_channels.serializers import (
     CreatorChannelSerializer,
+    OwnerChannelSerializer,
     CreateChannelSerializer,
     UpdateChannelSerializer,
 )
@@ -94,7 +95,7 @@ class CreateChannelView(APIView):
                 request.user.save(update_fields=['role'])
 
         return Response(
-            CreatorChannelSerializer(channel).data,
+            OwnerChannelSerializer(channel).data,
             status=status.HTTP_201_CREATED
         )
 
@@ -108,7 +109,7 @@ class MyChannelView(APIView):
 
     def get(self, request):
         channel = get_object_or_404(CreatorChannel, user=request.user)
-        return Response(CreatorChannelSerializer(channel).data)
+        return Response(OwnerChannelSerializer(channel).data)
 
     def patch(self, request):
         channel = get_object_or_404(CreatorChannel, user=request.user)
@@ -124,7 +125,7 @@ class MyChannelView(APIView):
 
         serializer.save()
         channel.refresh_from_db()
-        return Response(CreatorChannelSerializer(channel).data)
+        return Response(OwnerChannelSerializer(channel).data)
 
 
 class DeleteChannelView(APIView):

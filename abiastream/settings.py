@@ -227,6 +227,9 @@ CORS_ALLOW_HEADERS = [
     'content-type',
     'origin',
     'x-requested-with',
+    # Browsing-session id for events, experiments and view de-duplication
+    # (events/utils.resolve_session_id). Without it browsers block the header.
+    'x-session-id',
 ]
 
 
