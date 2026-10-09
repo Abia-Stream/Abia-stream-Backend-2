@@ -213,6 +213,7 @@ Every model is `managed = False`: the schema lives in Supabase and Django migrat
 | `007_moderation.sql` | Content reports + moderation audit log |
 | `008_livestreaming.sql` | Livestream columns, viewer sessions, live chat, moderation actions for streams |
 | `009_auto_moderation.sql` | Video fingerprints, `held` video status, automatic entries in the moderation queue |
+| `010_personalization.sql` | Ranker models, "up next" transitions, `feed_ranker` and `search_personalization` experiments (created off) |
 
 `sql/baseline/000_live_schema.sql` is a schema-only snapshot of production used **only** by the test suite. Never run it against Supabase.
 
@@ -234,6 +235,8 @@ celery -A abiastream beat -l info
 | On visibility change | Move a video between public and signed-only storage | `python manage.py sync_video_delivery` (dry run; add `--apply`) |
 | Every minute | Livestream status, recordings → videos, cleanup (also happens whenever a stream is viewed) | `python manage.py sync_livestreams` |
 | Hourly (:20) | Fingerprint and check videos the upload-time checks missed | `python manage.py scan_videos` |
+| Daily 03:30 | Rebuild "up next" from viewing sessions | `python manage.py build_video_transitions` |
+| Daily 04:00 | Retrain the feed ranker; activates only if clearly better | `python manage.py train_feed_ranker` (`--dry-run` to just report) |
 
 ---
 

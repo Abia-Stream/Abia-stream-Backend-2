@@ -18,7 +18,9 @@ Sources, everyone:
 
 Weights are guesses until impression/click events (events app) accumulate;
 they are module constants so they can be tuned, or A/B tested via the
-experiments app, without touching the logic.
+experiments app, without touching the logic. A trained ranker
+(recommendations/ranker.py) can replace the hand-tuned ordering for viewers
+in the `feed_ranker` experiment's treatment arm.
 """
 import math
 from collections import defaultdict
@@ -148,8 +150,16 @@ def _diversify(videos):
     return result + deferred
 
 
-def build_feed(user=None):
-    """Returns [(video, reason), ...] best first, at most MAX_FEED_SIZE long."""
+def rank_feed(user=None, use_ranker=False):
+    """
+    Returns (items, model_id) where items is [(video, reason, features)],
+    best first, at most MAX_FEED_SIZE long. With use_ranker and an active
+    trained model (recommendations/ranker.py), the model orders the
+    candidates; otherwise the hand-tuned score does. model_id is None when
+    the hand-tuned score was used.
+    """
+    from recommendations import ranker
+
     now = timezone.now()
     scores = _Scores()
     signed_in = bool(user and user.is_authenticated)
@@ -159,7 +169,7 @@ def build_feed(user=None):
     _add_global_sources(scores, now)
 
     if not scores.total:
-        return []
+        return [], None
 
     candidates = _published_public().filter(id__in=list(scores.total))
     if signed_in:
@@ -167,9 +177,29 @@ def build_feed(user=None):
         candidates = candidates.exclude(creator=user).exclude(id__in=finished)
 
     videos = list(candidates.select_related('category', 'creator').prefetch_related('tags'))
+    context = ranker.ViewerContext.for_user(user)
+    completion = ranker.completion_rates([v.id for v in videos])
+    feature_map = {
+        v.id: ranker.features(v, scores.by_source[v.id], scores.total[v.id],
+                              context, completion, now)
+        for v in videos
+    }
+
+    model = ranker.active_ranker() if use_ranker else None
+    if model:
+        key = {v.id: model.score(feature_map[v.id]) for v in videos}
+    else:
+        key = scores.total
     videos.sort(key=lambda v: (
-        -scores.total[v.id],
+        -key[v.id],
         -(v.published_at.timestamp() if v.published_at else 0),
     ))
     videos = _diversify(videos)[:MAX_FEED_SIZE]
-    return [(video, scores.reason(video.id)) for video in videos]
+    items = [(video, scores.reason(video.id), feature_map[video.id]) for video in videos]
+    return items, (model.model_id if model else None)
+
+
+def build_feed(user=None):
+    """Hand-tuned feed: [(video, reason), ...] best first."""
+    items, _ = rank_feed(user)
+    return [(video, reason) for video, reason, _ in items]

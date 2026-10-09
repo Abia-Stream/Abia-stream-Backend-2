@@ -4,7 +4,10 @@ import random
 from unittest import mock
 
 from django.core.management import call_command
+from datetime import timedelta
+
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from PIL import Image
 
 from abiastream.testing import client_for, make_user, make_video
@@ -217,6 +220,9 @@ class DuplicateTests(TestCase):
     def test_copy_of_other_creators_video_is_queued_not_held(self):
         frames = hashes(30)
         original = make_video(make_user())
+        # The original predates the copy (same-instant uploads aren't "copies").
+        Video.objects.filter(id=original.id).update(
+            created_at=timezone.now() - timedelta(days=1))
         fingerprint(original, frames)
         copier = make_user()
         copy = make_video(copier, status=Video.Status.READY, published_at=None)

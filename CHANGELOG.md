@@ -6,6 +6,21 @@ What changed in the backend, newest first. Endpoint details live in
 
 ---
 
+## 2026-10-09: Personalization groundwork (roadmap Stage 4)
+
+Built so it switches on as real data arrives; **nothing changes for users until an experiment is turned on**.
+
+- **Learned feed ranker.** Every For You page is logged with each item's ranking features; a nightly job trains a ranker on "shown → watched within 30 minutes" and activates it only if it beats the current hand-tuned order on recent held-out data by more than the measurement noise (checked: real signal activates 20/20 times, pure noise 0/20). It serves only viewers in the `feed_ranker` experiment (created **off**).
+- **Up next** — `GET /videos/<id>/up-next/`: what viewers actually watched next, then related, same creator, For You.
+- **Personalized search** — results nudged toward the viewer's categories and creators, in the `search_personalization` experiment (created **off**).
+- **A/B results** — `GET /analytics/experiments/<key>/`: watch rate per arm, lift and a significance test.
+- Database: `sql/010_personalization.sql`.
+- Not built: personalized thumbnails (needs several thumbnails per video first) and reinforcement learning (large scale only).
+
+**Data status at release:** 0 behaviour events, 0 recorded views, 7 watch-history rows. The ranker needs about 1,000 shown items and 50 watches before it can even be evaluated; the frontend must report views (`POST /playback/view/`) and events.
+
+---
+
 ## 2026-10-09: Automatic moderation, upload limit, thumbnails ([#6](https://github.com/Abia-Stream/Abia-Stream-Backend/pull/6))
 
 Roadmap Stage 2.

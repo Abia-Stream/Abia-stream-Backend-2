@@ -12,7 +12,7 @@ from abiastream.testing import client_for, make_user, make_video
 from accounts.models import User
 from creator_channels.models import CreatorChannel
 from livestreams import cloudinary_live
-from livestreams.models import LiveStream, StreamViewer
+from livestreams.models import ChatMessage, LiveStream, StreamViewer
 from livestreams.services import sync_all
 from moderation.models import ModerationAction
 from notifications.models import Notification
@@ -358,6 +358,10 @@ class ChatTests(LiveTestCase):
 
     def test_post_and_poll(self):
         first = self.say(self.viewer, 'first').json()
+        # Coarse clocks (Windows, ~15 ms) can give both the same timestamp;
+        # make the order unambiguous as it is in production.
+        ChatMessage.objects.filter(id=first['id']).update(
+            created_at=timezone.now() - timedelta(seconds=1))
         self.say(self.viewer, 'second')
 
         everything = client_for().get(self.url).json()

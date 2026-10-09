@@ -2549,3 +2549,55 @@ Email addresses are never shown to other users. Anywhere one user appears to ano
 
 - Comment authors: `user` is `{id, display_name, full_name, avatar_url}` (no `email`).
 - Channels: public responses have `owner_id` instead of `owner_email`. `owner_email` is only in the owner's own responses (`POST /channels/create/`, `GET/PATCH /channels/me/`).
+
+
+---
+
+## Personalization (Stage 4)
+
+### Up next
+```
+GET /videos/<video_id>/up-next/?limit=10
+```
+Array (max 20) for the "Up next" rail on the watch page. Each video has `up_next_reason`:
+
+| `up_next_reason` | Meaning |
+|---|---|
+| `watched_next` | What viewers actually watched right after this video |
+| `related` | Often watched by the same people |
+| `same_creator` | More from this creator |
+| `for_you` | From the viewer's For You feed (fallback) |
+
+Excludes the current video and, when signed in, videos the viewer already finished. Auth optional.
+
+### Learned feed ranking
+`GET /videos/feed/` is unchanged for clients. Behind it:
+- Every page served is logged server-side (event type `feed_served`, not accepted from clients) with each item's ranking features.
+- `python manage.py train_feed_ranker` (nightly with Celery) trains a ranker on "shown → watched within 30 minutes". A new model is activated only if it beats the current hand-tuned order on the most recent held-out data by more than the measurement's uncertainty. `--dry-run` trains and reports without storing.
+- Only viewers in the **`feed_ranker`** experiment's `treatment` arm get the trained order, and only once a model is active. The experiment is created **off**.
+
+### Personalized search
+Viewers in the **`search_personalization`** experiment's `treatment` arm get results nudged toward their favourite categories and creators. The nudge breaks near-ties; it doesn't override text relevance. Created **off**. Search events now record `variant` and `result_ids` for analysis.
+
+### Turning an experiment on
+```sql
+update experiments set is_active = true where key = 'feed_ranker';
+```
+Viewers are split 50/50 and keep their arm (`GET /experiments/variants/`).
+
+### Experiment results (admin)
+```
+GET /analytics/experiments/<key>/?period=7d|28d|90d
+```
+```json
+{
+  "experiment": "feed_ranker", "is_active": true, "period": "28d",
+  "measure": "watched / items_shown",
+  "variants": {
+    "control":   {"assigned": 412, "items_shown": 9120, "watched": 301, "watch_rate": 0.033},
+    "treatment": {"assigned": 398, "items_shown": 8840, "watched": 377, "watch_rate": 0.0426}
+  },
+  "comparison": {"lift": 0.29, "z": 3.4, "p_value": 0.0007, "significant": true}
+}
+```
+For `search_personalization` the measure is searches that led to watching one of the results. Roll out a treatment only when `significant` is true.

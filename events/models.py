@@ -25,6 +25,9 @@ class Event(models.Model):
         SEEK = 'seek', 'Seek'
         SKIP = 'skip', 'Skip'
         COMPLETE = 'complete', 'Complete'
+        # Server-side only: one For You page as served, with the ranking
+        # features of each item (training data for recommendations/ranker.py).
+        FEED_SERVED = 'feed_served', 'Feed Served'
 
     id = models.BigAutoField(primary_key=True)
     user = models.ForeignKey(
