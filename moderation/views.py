@@ -139,12 +139,19 @@ class ModerationQueueView(APIView):
         comments = {c.id: c for c in
                     Comment.objects.filter(id__in=comment_ids).select_related('user')}
 
-        reasons = {}
-        for row in reports.filter(
-                video_id__in=video_ids, target_type='video').values('video_id', 'reason'):
-            reasons.setdefault(('video', row['video_id']), Counter())[row['reason']] += 1
-        for row in reports.filter(comment_id__in=comment_ids).values('comment_id', 'reason'):
-            reasons.setdefault(('comment', row['comment_id']), Counter())[row['reason']] += 1
+        reasons, signals = {}, {}
+        for row in reports.filter(video_id__in=video_ids, target_type='video').values(
+                'video_id', 'reason', 'signal', 'signal_details'):
+            key = ('video', row['video_id'])
+            reasons.setdefault(key, Counter())[row['reason']] += 1
+            if row['signal']:
+                signals.setdefault(key, []).append({'signal': row['signal'], **row['signal_details']})
+        for row in reports.filter(comment_id__in=comment_ids).values(
+                'comment_id', 'reason', 'signal', 'signal_details'):
+            key = ('comment', row['comment_id'])
+            reasons.setdefault(key, Counter())[row['reason']] += 1
+            if row['signal']:
+                signals.setdefault(key, []).append({'signal': row['signal'], **row['signal_details']})
 
         results = []
         for row in page:
@@ -161,6 +168,10 @@ class ModerationQueueView(APIView):
                 'target': summary,
                 'report_count': row['report_count'],
                 'reasons': dict(reasons.get(key, {})),
+                # Automatic checks that fired (moderation/auto.py), with what
+                # they matched, e.g. {"signal": "reupload_of_blocked",
+                # "matched_video_id": "...", "similarity": 1.0}.
+                'automatic_signals': signals.get(key, []),
                 'first_reported_at': row['first_reported_at'],
                 'last_reported_at': row['last_reported_at'],
             })

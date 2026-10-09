@@ -11,7 +11,7 @@ other change is additive.
 
 ---
 
-## 1. Required: stop reading other users' emails (ships with backend PR #4)
+## 1. Required: stop reading other users' emails (live since backend PR #4)
 
 | Where | Stop using | Use instead |
 |---|---|---|
@@ -227,7 +227,17 @@ Blocked videos show `status: "blocked"` in the creator's *My Videos* and can't b
 
 ---
 
-## 12. Small things
+## 12. Videos under review (`held`) and upload size
+
+- A new video **status `held`** means an automatic check found a likely re-upload of a blocked video and moderators are reviewing it. Show it in *My Videos* as "Under review". The creator can edit title/description but not the status. Publishing can return `200` with `status: "held"` instead of `"published"` — show "Your video is being reviewed" rather than an error.
+- New notifications: `video_held`, `video_approved`.
+- `GET /videos/upload/signed-params/` returns **`max_file_size`** (bytes) — currently **100 MB**. Check the file before uploading and tell the user if it's too big; Cloudinary rejects larger files after the whole upload.
+- Live chat can now return `400` "Links, phone numbers and blocked words aren't allowed in chat." — show it next to the input.
+- Moderators: queue rows have `automatic_signals` (what the automatic check matched, e.g. `{"signal": "reupload_of_blocked", "matched_video_id": "…", "similarity": 1.0}`) and there's a new action `approve_video` for held videos.
+
+---
+
+## 13. Small things
 
 - Creator dashboard: `new_subscribers_last_28_days` now has real numbers.
 - `POST /playback/view/` response now includes `counted` (false for a repeat view in the same session within 30 min). Send `session_id` so de-duplication works.
@@ -248,4 +258,5 @@ Blocked videos show `status: "blocked"` in the creator's *My Videos* and can't b
 - [ ] §9 Go live, watch page, heartbeat, chat, live discovery
 - [ ] §10 Moderator queue
 - [ ] §11 Admin analytics
-- [ ] §12 New notification types; `session_id` on view recording
+- [ ] §12 "Under review" for `held` videos; size check with `max_file_size`; chat 400 message; `approve_video` in moderator UI
+- [ ] §13 New notification types; `session_id` on view recording

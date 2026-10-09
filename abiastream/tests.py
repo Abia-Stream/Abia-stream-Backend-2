@@ -93,3 +93,61 @@ class ModelSchemaTests(TestCase):
                         'field is null=True with no default, so a create() without '
                         'it sends NULL')
         self.assertEqual(problems, [])
+
+
+# Postgres information_schema.data_type values each Django field type may map to.
+COMPATIBLE_TYPES = {
+    'JSONField': {'jsonb', 'json'},
+    'ArrayField': {'ARRAY'},
+    'BooleanField': {'boolean'},
+    'UUIDField': {'uuid'},
+    'DateTimeField': {'timestamp with time zone', 'timestamp without time zone'},
+    'DateField': {'date'},
+    'IntegerField': {'integer', 'smallint', 'bigint'},
+    'BigIntegerField': {'bigint'},
+    'AutoField': {'integer'},
+    'BigAutoField': {'bigint'},
+    'FloatField': {'double precision', 'real'},
+    'DecimalField': {'numeric'},
+    'CharField': {'character varying', 'text', 'character', 'USER-DEFINED'},
+    'TextField': {'text', 'character varying', 'USER-DEFINED'},
+    'EmailField': {'character varying', 'text'},
+    'URLField': {'character varying', 'text'},
+    'GenericIPAddressField': {'inet', 'character varying', 'text'},
+    'SearchVectorField': {'tsvector'},
+    'GeneratedField': None,  # checked via its output_field below
+}
+
+
+class ModelColumnTypeTests(TestCase):
+    """
+    A field must match its column's type. Catches e.g. a JSONField added in
+    SQL with `add column if not exists` that silently kept an older text
+    column of the same name (content_reports.details, sql/009).
+    """
+
+    def test_field_types_match_columns(self):
+        problems = []
+        for model in project_models():
+            with connection.cursor() as cur:
+                cur.execute(
+                    "select column_name, data_type from information_schema.columns "
+                    "where table_schema = 'public' and table_name = %s",
+                    [model._meta.db_table])
+                types = dict(cur.fetchall())
+            for field in model._meta.concrete_fields:
+                if field.column not in types:
+                    continue
+                kind = field.get_internal_type()
+                if kind == 'ForeignKey' or kind == 'OneToOneField':
+                    kind = field.target_field.get_internal_type()
+                    kind = {'AutoField': 'IntegerField', 'BigAutoField': 'BigIntegerField'}.get(kind, kind)
+                if kind == 'GeneratedField':
+                    kind = field.output_field.get_internal_type()
+                if type(field).__name__ in COMPATIBLE_TYPES:
+                    kind = type(field).__name__ if type(field).__name__ != 'GeneratedField' else kind
+                allowed = COMPATIBLE_TYPES.get(kind)
+                if allowed and types[field.column] not in allowed:
+                    problems.append(f'{model.__name__}.{field.name}: {kind} on '
+                                    f'{types[field.column]} column {field.column}')
+        self.assertEqual(problems, [])

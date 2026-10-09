@@ -6,9 +6,26 @@ What changed in the backend, newest first. Endpoint details live in
 
 ---
 
-## Pending: Email privacy ([#4](https://github.com/Abia-Stream/Abia-Stream-Backend/pull/4), not merged yet)
+## 2026-10-09: Automatic moderation, upload limit, thumbnails ([#6](https://github.com/Abia-Stream/Abia-Stream-Backend/pull/6))
 
-Email addresses were visible to other users. Once #4 is merged:
+Roadmap Stage 2.
+
+- **Automatic moderation.** Strong matches are held from the public until a moderator reviews them; weaker signals only go to the queue.
+  - A re-upload of a **blocked** video (visual fingerprint) → new video status **`held`**, creator notified (`video_held`).
+  - A copy of another creator's earlier video, or spam links / phone numbers / banned terms in video text or comments → queue entry, content stays up.
+  - Live chat refuses links, phone numbers and banned terms.
+  - Blocking a video also holds its existing copies.
+  - Moderators approve held videos with the new `approve_video` action (`video_approved` notification).
+- **Upload size limit (bug).** Our Cloudinary plan rejects videos over 100 MB, but the app allowed 500 MB–1 GB, so large uploads failed after the user waited. The real limit is now read from the account and enforced, and sent to the frontend as `max_file_size`.
+- **Thumbnails.** New auto-thumbnails use the most interesting frame instead of the frame at 1 s.
+- Database: `sql/009_auto_moderation.sql` — **applied to Supabase**.
+- After deploy, run `python manage.py scan_videos` once to fingerprint videos uploaded before this release.
+
+---
+
+## 2026-10-09: Email privacy ([#4](https://github.com/Abia-Stream/Abia-Stream-Backend/pull/4))
+
+Email addresses were visible to other users. Now:
 
 | Where | Before | After |
 |---|---|---|
@@ -18,7 +35,11 @@ Email addresses were visible to other users. Once #4 is merged:
 | New-subscriber notifications | "jane@… subscribed…" | display name |
 
 The owner's own channel responses (`/channels/me/`, create) keep `owner_email`.
-**Breaking for the frontend** — coordinate before merging.
+
+## 2026-10-09: Docs and CORS ([#5](https://github.com/Abia-Stream/Abia-Stream-Backend/pull/5))
+
+- This changelog and [FRONTEND_INTEGRATION.md](FRONTEND_INTEGRATION.md).
+- Browsers may now send the `X-Session-Id` header (it was missing from CORS, so preflight requests failed).
 
 ---
 
@@ -73,4 +94,5 @@ The owner's own channel responses (`/channels/me/`, create) keep `owner_email`.
 | First real livestream from OBS to confirm going live → ending → recording | A verified creator account |
 | CI: GitHub Actions doesn't start runs on the org | Org admin (Actions billing / minutes) |
 | Rotate the Supabase database password (a fragment appeared in local tool output) | Supabase access |
+| Run `python manage.py scan_videos` once after #6 deploys (fingerprints for older videos) | Production shell |
 | View-log partitions for 2028+ (automatic once Celery runs, else `python manage.py ensure_view_log_partitions --months-ahead 14` before Dec 2027) | — |

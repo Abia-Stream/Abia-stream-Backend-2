@@ -33,8 +33,10 @@ class VideoUploadSerializer(serializers.ModelSerializer):
                          'video/x-matroska', 'video/webm']
         if value.content_type not in allowed_types:
             raise serializers.ValidationError('Unsupported video format.')
-        if value.size > 500 * 1024 * 1024:  # 500MB
-            raise serializers.ValidationError('File too large. Max 500MB.')
+        from videos.limits import human_size, max_video_bytes
+        limit = min(500 * 1024 * 1024, max_video_bytes())
+        if value.size > limit:
+            raise serializers.ValidationError(f'File too large. Max {human_size(limit)}.')
         return value
 
     def validate_visibility(self, value):
