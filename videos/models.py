@@ -55,6 +55,8 @@ class Video(models.Model):
         UNLISTED = 'unlisted', 'Unlisted'
         PRIVATE = 'private', 'Private'
         SUBSCRIBERS_ONLY = 'subscribers_only', 'Subscribers Only'
+        # Paying channel members only (monetization app, sql/011).
+        MEMBERS_ONLY = 'members_only', 'Members Only'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     creator = models.ForeignKey(

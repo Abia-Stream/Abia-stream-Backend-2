@@ -21,6 +21,17 @@ from creator_channels.serializers import (
     UpdateChannelSerializer,
 )
 from accounts.models import User
+from monetization.models import CreatorEarning
+from monetization.services import earning_refusal
+
+# Ledger kinds that count as earnings (payouts are withdrawals, not revenue).
+EARNING_KINDS = ['tip', 'membership', 'ad_share', 'adjustment']
+
+
+def earned_since(user, since):
+    return CreatorEarning.objects.filter(creator=user, created_at__gte=since,
+                                         kind__in=EARNING_KINDS).aggregate(
+        total=Sum('amount_kobo'))['total'] or 0
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -274,8 +285,10 @@ class CreatorDashboardView(APIView):
                 'processing_videos': creator_videos.filter(
                     status=Video.Status.PROCESSING
                 ).count(),
-                'recent_earnings': None,        # Phase 4
-                'monetization_enabled': False,  # Phase 4
+                # Net earnings credited in the last 28 days (tips, memberships,
+                # ad share), in kobo; see monetization/.
+                'recent_earnings': earned_since(request.user, last_28_days),
+                'monetization_enabled': earning_refusal(request.user) is None,
             },
             'top_videos': list(top_videos),
         })
@@ -324,12 +337,22 @@ class CreatorAnalyticsView(APIView):
             watch_seconds=Sum('watch_duration_seconds')
         ).order_by('period')
 
+        revenue_by_period = {
+            row['period'].date(): row['kobo']
+            for row in CreatorEarning.objects.filter(
+                creator=request.user, created_at__gte=start_date, created_at__lte=now,
+                kind__in=EARNING_KINDS,
+            ).annotate(period=trunc_fn('created_at')).values('period')
+            .annotate(kobo=Sum('amount_kobo')).order_by('period')
+        }
+
         chart_data = [
             {
                 'date': entry['period'].strftime('%Y-%m-%d'),
                 'views': entry['views'],
                 'watch_hours': round((entry['watch_seconds'] or 0) / 3600, 2),
-                'revenue': None,
+                # Net earnings in kobo (monetization/).
+                'revenue': revenue_by_period.get(entry['period'].date(), 0),
             }
             for entry in views_by_period
         ]
@@ -348,7 +371,7 @@ class CreatorAnalyticsView(APIView):
                 'watch_hours': round(
                     (period_totals['total_watch_seconds'] or 0) / 3600, 2
                 ),
-                'revenue': None,
+                'revenue': earned_since(request.user, start_date),
             },
             'chart_data': chart_data,
         })

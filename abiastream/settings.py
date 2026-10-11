@@ -106,6 +106,7 @@ INSTALLED_APPS = [
     'moderation',
     'analytics',
     'livestreams',
+    'monetization',
 
 ]
 
@@ -465,6 +466,14 @@ MODERATION_BANNED_TERMS = config('MODERATION_BANNED_TERMS', default='', cast=Csv
 
 # Upper bound for uploads when Cloudinary's own limit can't be read
 # (videos/limits.py). Free plan: 100 MB.
+# Paystack (monetization/). Test keys start sk_test_/pk_test_. The webhook URL
+# to set in the Paystack dashboard is <api>/api/v1/monetization/paystack/webhook/.
+PAYSTACK_SECRET_KEY = config('PAYSTACK_SECRET_KEY', default='')
+PAYSTACK_PUBLIC_KEY = config('PAYSTACK_PUBLIC_KEY', default='')
+# Where Paystack sends the viewer after paying (a frontend page that then calls
+# GET /monetization/payments/<reference>/).
+PAYSTACK_CALLBACK_URL = config('PAYSTACK_CALLBACK_URL', default='')
+
 VIDEO_MAX_UPLOAD_BYTES_FALLBACK = config('VIDEO_MAX_UPLOAD_BYTES_FALLBACK',
                                          default=100 * 1024 * 1024, cast=int)
 

@@ -2601,3 +2601,65 @@ GET /analytics/experiments/<key>/?period=7d|28d|90d
 }
 ```
 For `search_personalization` the measure is searches that led to watching one of the results. Roll out a treatment only when `significant` is true.
+
+---
+
+## Monetization (Paystack)
+
+All money is **integer kobo** (`amount_kobo: 50000` = ₦500). Only verified creators with a channel can receive money. A payment counts only after Paystack confirms it; the platform keeps a configurable fee (default 20%) and the creator is credited the rest.
+
+### Paying (tips and memberships)
+1. Call the endpoint below; you get `authorization_url`, `access_code`, `reference` and `public_key`.
+2. Send the viewer to `authorization_url` (or open Paystack Popup / InlineJS with `access_code` and `public_key`).
+3. When Paystack returns them to your callback page, call `GET /monetization/payments/<reference>/` and show the `status` (`success` | `pending` | `failed`).
+
+### Tips
+```
+POST /monetization/tips/      🔒
+{"video_id" | "livestream_id" | "creator_id": "<uuid>", "amount_kobo": 50000, "message": "optional, up to 200 chars"}
+```
+₦100 to ₦1,000,000. `400` for tipping yourself or a creator who can't receive payments. Tips during a livestream are pushed to `ws/livestream/<id>/` as `{"type": "tip", "from_name", "amount_kobo", "message"}`.
+
+### Memberships
+```
+GET  /channels/<slug>/membership/              {offers_membership, price_kobo, membership}
+POST /channels/<slug>/membership/join/         🔒 Paystack subscription checkout
+GET  /monetization/memberships/                🔒 my memberships
+POST /monetization/memberships/<id>/cancel/    🔒 stops renewal; access continues until current_period_end
+GET  /channels/me/membership/                  🔒 creator: price, active, active_members
+PUT  /channels/me/membership/                  🔒 creator: {"price_kobo": 150000, "is_active": true} (at least ₦100/month)
+```
+Membership `status`: `active`, `non_renewing` (cancelled, still active until period end), `past_due` (renewal failed), `cancelled`. `has_access` says whether members-only content is unlocked.
+
+New video visibility **`members_only`**: only active channel members (and the creator) can watch; never shown in public lists. `subscribers_only` (free followers) is unchanged.
+
+### Earnings and payouts (creators)
+```
+GET  /monetization/earnings/          🔒 balance_kobo, pending_payouts_kobo, last_28_days, lifetime, eligible + paginated ledger
+GET  /monetization/payouts/banks/     🔒 [{name, code}]
+GET  /monetization/payouts/account/   🔒
+PUT  /monetization/payouts/account/   🔒 {"bank_code": "058", "account_number": "0123456789"} (verified with the bank; only the last 4 digits are kept)
+GET  /monetization/payouts/           🔒
+POST /monetization/payouts/           🔒 {"amount_kobo": 500000} (minimum ₦1,000 by default; up to the balance)
+```
+Payout `status`: `processing` then `paid`, or `failed` / `reversed` (the amount goes back to the balance). `awaiting_otp` means transfers need approving in the Paystack dashboard (turn off OTP for API transfers to avoid it).
+
+Ledger `kind`: `tip`, `membership`, `ad_share`, `payout` (negative), `payout_reversal`, `adjustment`. The creator dashboard's `recent_earnings` and the performance chart's `revenue` are now real values (kobo).
+
+### Admin
+```
+GET   /admin/monetization/settings/       {platform_fee_percent, min_payout_kobo}
+PATCH /admin/monetization/settings/       fee 0 to 50%; applies to payments made after the change
+GET   /admin/monetization/overview/?days=30
+GET   /admin/ad-revenue/
+POST  /admin/ad-revenue/                  {"period_start", "period_end", "gross_revenue_kobo", "notes"} creates a draft + preview split
+GET   /admin/ad-revenue/<id>/             preview (read-only)
+POST  /admin/ad-revenue/<id>/distribute/  credits creators, once
+```
+Ad revenue (from your ad network) is entered per period; after the platform fee, the pool is split between eligible creators by watch time on their **monetized** videos (`is_monetized: true`) in that period.
+
+### Paystack webhook
+`POST /monetization/paystack/webhook/`: set this URL in the Paystack dashboard. Requests must carry a valid `x-paystack-signature`; duplicates are ignored.
+
+### New notification types
+`tip_received`, `new_member`, `membership_payment`, `payout_paid`, `payout_failed`, `ad_share_credited`.

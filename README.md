@@ -194,6 +194,8 @@ Server runs at `http://127.0.0.1:8000`
 | `CLOUDINARY_WEBHOOK_VERIFY` | `off`, `log` (default) or `enforce` — Cloudinary webhook signature check | ❌ |
 | `LIVESTREAM_IDLE_TIMEOUT_SECONDS` | How long a dropped encoder may reconnect before a stream ends (default 120) | ❌ |
 | `LIVESTREAM_MAX_RUNTIME_SECONDS` | Maximum stream length (default 14400 = 4 h) | ❌ |
+| `PAYSTACK_SECRET_KEY` / `PAYSTACK_PUBLIC_KEY` | Paystack keys (test keys start `sk_test_` / `pk_test_`) | ✅ for payments |
+| `PAYSTACK_CALLBACK_URL` | Frontend page Paystack returns viewers to after paying | ✅ for payments |
 | `MODERATION_BANNED_TERMS` | Comma-separated words/phrases flagged in comments/videos and refused in chat | ❌ |
 
 ---
@@ -214,6 +216,7 @@ Every model is `managed = False`: the schema lives in Supabase and Django migrat
 | `008_livestreaming.sql` | Livestream columns, viewer sessions, live chat, moderation actions for streams |
 | `009_auto_moderation.sql` | Video fingerprints, `held` video status, automatic entries in the moderation queue |
 | `010_personalization.sql` | Ranker models, "up next" transitions, `feed_ranker` and `search_personalization` experiments (created off) |
+| `011_monetization.sql` | Tips, memberships, payouts, ad revenue share, earnings ledger, `members_only` visibility |
 
 `sql/baseline/000_live_schema.sql` is a schema-only snapshot of production used **only** by the test suite. Never run it against Supabase.
 
