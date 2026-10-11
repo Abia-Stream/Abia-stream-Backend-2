@@ -62,8 +62,8 @@ def _block_cloudinary_network():
     original_send = requests.adapters.HTTPAdapter.send
 
     def guarded_send(self, request, *args, **kwargs):
-        if 'cloudinary.com' in request.url:
-            raise NetworkDisabled(f'Cloudinary network call in tests: {request.method} {request.url}')
+        if 'cloudinary.com' in request.url or 'paystack.co' in request.url:
+            raise NetworkDisabled(f'External payment/media call in tests: {request.method} {request.url}')
         return original_send(self, request, *args, **kwargs)
 
     requests.adapters.HTTPAdapter.send = guarded_send

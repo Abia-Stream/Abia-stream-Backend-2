@@ -6,6 +6,18 @@ What changed in the backend, newest first. Endpoint details live in
 
 ---
 
+## 2026-10-11: Monetization (Paystack)
+
+- **Tips** on videos, livestreams (announced live in chat) or creators.
+- **Paid channel memberships** (monthly Paystack subscriptions) and a new **`members_only`** video visibility. `subscribers_only` is unchanged.
+- **Ad revenue share:** admins enter each period's ad revenue; after the platform fee it's split by watch time on monetized videos.
+- **Payouts** to verified Nigerian bank accounts.
+- **Earnings ledger:** every balance change is one row; duplicate webhooks and retries can't credit twice; a failed payout is credited back.
+- **Platform fee configurable** by admins (default 20%), fixed on each payment when it's made.
+- Payments count only after Paystack confirms them server-side; webhooks must be signed.
+- Creator dashboard `recent_earnings`, `monetization_enabled` and chart `revenue` are now real.
+- Database: `sql/011_monetization.sql`. Needs `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY`, `PAYSTACK_CALLBACK_URL`.
+
 ## 2026-10-11: Admin user management and share counting
 
 - **Admins can appoint moderators and admins.** The user-management code existed but was never routed, so roles could only be changed in the database. New: `GET /admin/users/` (filter, search), `GET/PATCH /admin/users/<id>/`. Validated values, no changing your own role/status, and the active-admin rows are locked during a change so two admins can't demote each other at once and leave none.

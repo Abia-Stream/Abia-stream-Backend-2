@@ -19,6 +19,7 @@ urlpatterns = [
     path('api/v1/', include('moderation.urls')),
     path('api/v1/', include('analytics.urls')),
     path('api/v1/', include('livestreams.urls')),
+    path('api/v1/', include('monetization.urls')),
 
     # API Docs
     path('api/docs/schema/', SpectacularAPIView.as_view(), name='schema'),

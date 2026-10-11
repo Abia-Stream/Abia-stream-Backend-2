@@ -17,6 +17,8 @@ os.environ['DEBUG'] = 'False'
 os.environ['CLOUDINARY_CLOUD_NAME'] = 'test-cloud'
 os.environ['CLOUDINARY_API_KEY'] = '000000000000000'
 os.environ['CLOUDINARY_API_SECRET'] = 'test-cloudinary-secret'
+os.environ['PAYSTACK_SECRET_KEY'] = 'sk_test_unit_tests_only'
+os.environ['PAYSTACK_PUBLIC_KEY'] = 'pk_test_unit_tests_only'
 os.environ.setdefault('GOOGLE_CLIENT_ID', 'test-google-client')
 os.environ.setdefault('GOOGLE_CLIENT_SECRET', 'test-google-secret')
 for key in ('DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_HOST'):

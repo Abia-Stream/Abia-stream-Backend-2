@@ -21,7 +21,7 @@ PROJECT_APPS = {
     'accounts', 'profiles', 'videos', 'playback', 'creator_channels',
     'interactions', 'subscriptions', 'notifications', 'verification',
     'comments', 'events', 'recommendations', 'experiments', 'analytics',
-    'moderation', 'livestreams',
+    'moderation', 'livestreams', 'monetization',
 }
 
 

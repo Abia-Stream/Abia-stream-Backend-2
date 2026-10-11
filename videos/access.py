@@ -23,4 +23,7 @@ def is_video_accessible(video, user):
             ).exists()
         except Exception:
             return False
+    if video.visibility == Video.Visibility.MEMBERS_ONLY:
+        from monetization.services import has_member_access
+        return has_member_access(user, video.creator)
     return False

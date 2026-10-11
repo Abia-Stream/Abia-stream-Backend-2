@@ -254,7 +254,27 @@ Blocked videos show `status: "blocked"` in the creator's *My Videos* and can't b
 
 ---
 
-## 14. Small things
+## 14. Monetization
+
+Amounts are **kobo** (₦500 = `50000`). Full details: API DOCUMENTATION.md, Monetization section.
+
+- **Tip button** (video page, live page, channel): `POST /monetization/tips/`, then open `authorization_url`
+  (or Paystack Popup with `access_code` + `public_key`). On your Paystack callback page call
+  `GET /monetization/payments/<reference>/` and show success, pending or failed. Live tips arrive on the
+  stream websocket as `type: "tip"`; show them in chat.
+- **Join channel**: `GET /channels/<slug>/membership/` for the price and current membership;
+  `POST .../membership/join/` uses the same checkout flow. "My memberships" with cancel.
+- **Members-only videos**: visibility `members_only` in the upload/edit form; a non-member gets `403`,
+  so show "Join to watch".
+- **Creator > Monetization**: set the membership price (`PUT /channels/me/membership/`), earnings page
+  (`GET /monetization/earnings/`), bank account (`GET /monetization/payouts/banks/`,
+  `PUT /monetization/payouts/account/`), withdraw (`POST /monetization/payouts/`).
+- **Admin**: fee settings, monetization overview, ad revenue periods (create, review the preview, distribute).
+- New notifications: `tip_received`, `new_member`, `membership_payment`, `payout_paid`, `payout_failed`, `ad_share_credited`.
+
+---
+
+## 15. Small things
 
 - Creator dashboard: `new_subscribers_last_28_days` now has real numbers.
 - `POST /playback/view/` response now includes `counted` (false for a repeat view in the same session within 30 min). Send `session_id` so de-duplication works.
@@ -277,4 +297,5 @@ Blocked videos show `status: "blocked"` in the creator's *My Videos* and can't b
 - [ ] §11 Admin analytics
 - [ ] §12 "Under review" for `held` videos; size check with `max_file_size`; chat 400 message; `approve_video` in moderator UI
 - [ ] §13 Share button → `POST /videos/<id>/share/`; Admin › Users screen
-- [ ] §14 New notification types; `session_id` on view recording
+- [ ] §14 Tips, memberships, members-only, creator earnings/payouts, admin monetization
+- [ ] §15 New notification types; `session_id` on view recording
