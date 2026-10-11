@@ -25,6 +25,8 @@ class Event(models.Model):
         SEEK = 'seek', 'Seek'
         SKIP = 'skip', 'Skip'
         COMPLETE = 'complete', 'Complete'
+        # Logged by POST /videos/<id>/share/ (interactions/views.py).
+        SHARE = 'share', 'Share'
         # Server-side only: one For You page as served, with the ranking
         # features of each item (training data for recommendations/ranker.py).
         FEED_SERVED = 'feed_served', 'Feed Served'

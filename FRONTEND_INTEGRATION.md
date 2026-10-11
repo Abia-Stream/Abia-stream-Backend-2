@@ -243,7 +243,18 @@ Blocked videos show `status: "blocked"` in the creator's *My Videos* and can't b
 
 ---
 
-## 13. Small things
+## 13. Share button and admin user management
+
+- **Share button:** after the viewer shares (share sheet opened or link copied), call
+  `POST /videos/<id>/share/` with `{"destination": "whatsapp" | "copy_link" | …}` and update the count from
+  the response's `shares_count`.
+- **Admin › Users** (role `admin`): `GET /admin/users/?q=&role=&status=` to list/search, and
+  `PATCH /admin/users/<id>/` with `{"role": "moderator"}` or `{"status": "suspended"}`. Show the `detail` of a
+  `400` (e.g. trying to change your own role). New notification type: `role_changed`.
+
+---
+
+## 14. Small things
 
 - Creator dashboard: `new_subscribers_last_28_days` now has real numbers.
 - `POST /playback/view/` response now includes `counted` (false for a repeat view in the same session within 30 min). Send `session_id` so de-duplication works.
@@ -265,4 +276,5 @@ Blocked videos show `status: "blocked"` in the creator's *My Videos* and can't b
 - [ ] §10 Moderator queue
 - [ ] §11 Admin analytics
 - [ ] §12 "Under review" for `held` videos; size check with `max_file_size`; chat 400 message; `approve_video` in moderator UI
-- [ ] §13 New notification types; `session_id` on view recording
+- [ ] §13 Share button → `POST /videos/<id>/share/`; Admin › Users screen
+- [ ] §14 New notification types; `session_id` on view recording

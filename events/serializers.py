@@ -7,7 +7,8 @@ class EventSerializer(serializers.Serializer):
 
     # Server-logged types are not accepted from clients.
     event_type = serializers.ChoiceField(choices=[
-        choice for choice in Event.Type.choices if choice[0] != Event.Type.FEED_SERVED])
+        choice for choice in Event.Type.choices
+        if choice[0] not in (Event.Type.FEED_SERVED, Event.Type.SHARE)])
     session_id = serializers.UUIDField()
     video_id = serializers.UUIDField(required=False, allow_null=True)
     payload = serializers.JSONField(required=False, default=dict)

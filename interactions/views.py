@@ -238,3 +238,58 @@ class VideoInteractionsCountView(APIView):
             'views_count': video.views_count or 0,
             'shares_count': video.shares_count or 0,
         })
+
+SHARE_DESTINATIONS = ('whatsapp', 'facebook', 'x', 'telegram', 'instagram', 'tiktok',
+                      'copy_link', 'native', 'other')
+# The same session sharing the same video again within this window isn't
+# counted again (the share is still logged).
+SHARE_DEDUPE_HOURS = 24
+
+
+class ShareVideoView(APIView):
+    """
+    Record that a viewer shared a video (the frontend opens the share sheet /
+    copies the link itself; this only counts it).
+
+    POST /api/v1/videos/<video_id>/share/   {"destination": "whatsapp"}
+    Auth optional; send X-Session-Id so repeat shares aren't double counted.
+
+    Returns {"counted": true|false, "shares_count": n}.
+    """
+    permission_classes = [AllowAny]
+    throttle_scope = 'shares'
+
+    def get_throttles(self):
+        from rest_framework.throttling import ScopedRateThrottle
+        return [ScopedRateThrottle()]
+
+    def post(self, request, video_id):
+        from datetime import timedelta
+        from django.utils import timezone
+        from events.models import Event
+        from events.utils import resolve_session_id
+        from videos.access import is_video_accessible
+
+        video = get_object_or_404(Video, id=video_id, status=Video.Status.PUBLISHED)
+        if not is_video_accessible(video, request.user):
+            return Response({'detail': 'Video not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        destination = request.data.get('destination') or 'other'
+        if destination not in SHARE_DESTINATIONS:
+            return Response({'detail': f'destination must be one of: {", ".join(SHARE_DESTINATIONS)}.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        session_id = resolve_session_id(request)
+        user = request.user if request.user.is_authenticated else None
+        since = timezone.now() - timedelta(hours=SHARE_DEDUPE_HOURS)
+        earlier = Event.objects.filter(event_type=Event.Type.SHARE, video=video, occurred_at__gte=since)
+        earlier = earlier.filter(user=user) if user else earlier.filter(session_id=session_id)
+        counted = not earlier.exists()
+
+        Event.objects.create(user=user, session_id=session_id, video=video,
+                             event_type=Event.Type.SHARE,
+                             payload={'destination': destination, 'counted': counted})
+        if counted:
+            Video.objects.filter(id=video.id).update(shares_count=F('shares_count') + 1)
+        video.refresh_from_db(fields=['shares_count'])
+        return Response({'counted': counted, 'shares_count': video.shares_count or 0})
