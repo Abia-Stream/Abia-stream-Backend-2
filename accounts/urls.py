@@ -1,4 +1,5 @@
 from django.urls import path
+from accounts.admin_views import AdminUserDetailView, AdminUserListView
 from accounts.views import (
     RegisterView, VerifyEmailView, ResendOTPView,
     ForgotPasswordView, VerifyPasswordResetOTPView, ResetPasswordView, LoginView, TokenRefreshView, LogoutView, GoogleAuthView
@@ -20,4 +21,8 @@ urlpatterns = [
     
     # Google signup
     path('auth/google/', GoogleAuthView.as_view()),   # ← add this
+
+    # Admin: user management (appoint moderators/admins, suspend)
+    path('admin/users/', AdminUserListView.as_view()),
+    path('admin/users/<uuid:user_id>/', AdminUserDetailView.as_view()),
 ]

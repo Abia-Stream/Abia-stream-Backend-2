@@ -18,6 +18,11 @@ What changed in the backend, newest first. Endpoint details live in
 - Creator dashboard `recent_earnings`, `monetization_enabled` and chart `revenue` are now real.
 - Database: `sql/011_monetization.sql`. Needs `PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY`, `PAYSTACK_CALLBACK_URL`.
 
+## 2026-10-11: Admin user management and share counting
+
+- **Admins can appoint moderators and admins.** The user-management code existed but was never routed, so roles could only be changed in the database. New: `GET /admin/users/` (filter, search), `GET/PATCH /admin/users/<id>/`. Validated values, no changing your own role/status, and the active-admin rows are locked during a change so two admins can't demote each other at once and leave none.
+- **Shares are counted.** `shares_count` existed but nothing increased it. New `POST /videos/<id>/share/`, counted once per viewer per video per 24 hours.
+
 ---
 
 ## 2026-10-09: Best-frame thumbnails for direct uploads

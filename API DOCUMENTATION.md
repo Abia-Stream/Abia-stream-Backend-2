@@ -2604,6 +2604,36 @@ For `search_personalization` the measure is searches that led to watching one of
 
 ---
 
+## Admin: User Management
+
+Role `admin` only. This is how moderators and admins are appointed.
+
+```
+GET   /admin/users/?role=&status=&q=      paginated; q searches email, name, channel
+GET   /admin/users/<user_id>/
+PATCH /admin/users/<user_id>/             {"role": "moderator"} | {"status": "suspended"} | {"is_email_verified": true}
+```
+User object: `{id, email, display_name, role, status, is_email_verified, verification_status, has_channel, last_login, created_at}`.
+
+- `role`: viewer, creator, moderator, admin. `status`: active, suspended, banned, pending_verification. Other values → `400`.
+- An admin can't change their own role or status (`400`).
+- Suspended or banned users are signed out of everything immediately.
+- The user gets a `role_changed` notification when their role changes.
+
+---
+
+## Sharing
+
+```
+POST /videos/<video_id>/share/      {"destination": "whatsapp"}
+```
+Call when a viewer shares (after opening the share sheet or copying the link). Auth optional; send `X-Session-Id`.
+`destination`: whatsapp, facebook, x, telegram, instagram, tiktok, copy_link, native, other.
+Returns `{"counted": true, "shares_count": 5}` — the same viewer (or session) counts once per video per 24 hours.
+`404` for videos that aren't published and public/unlisted; `429` above 30/min. `shares_count` appears on every video object and in `/interactions/video/<id>/counts/`.
+
+---
+
 ## Monetization (Paystack)
 
 All money is **integer kobo** (`amount_kobo: 50000` = ₦500). Only verified creators with a channel can receive money. A payment counts only after Paystack confirms it; the platform keeps a configurable fee (default 20%) and the creator is credited the rest.

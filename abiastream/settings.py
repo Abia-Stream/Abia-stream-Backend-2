@@ -264,6 +264,8 @@ REST_FRAMEWORK = {
         # Livestreams: chat posts per viewer, and viewer heartbeats (~every 20s).
         'live_chat': '20/min',
         'live_heartbeat': '10/min',
+        # Share button presses (interactions.ShareVideoView).
+        'shares': '30/min',
     },
 }
 SPECTACULAR_SETTINGS = {
