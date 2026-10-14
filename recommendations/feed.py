@@ -176,7 +176,7 @@ def rank_feed(user=None, use_ranker=False):
         finished = WatchHistory.objects.filter(user=user, completed=True).values('video_id')
         candidates = candidates.exclude(creator=user).exclude(id__in=finished)
 
-    videos = list(candidates.select_related('category', 'creator').prefetch_related('tags'))
+    videos = list(candidates.select_related('category', 'creator', 'creator__channel').prefetch_related('tags'))
     context = ranker.ViewerContext.for_user(user)
     completion = ranker.completion_rates([v.id for v in videos])
     feature_map = {

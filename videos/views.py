@@ -298,7 +298,7 @@ class VideoListView(APIView):
         queryset = Video.objects.filter(
             status=Video.Status.PUBLISHED,
             visibility=Video.Visibility.PUBLIC,
-        ).select_related('category', 'creator').prefetch_related('tags')
+        ).select_related('category', 'creator', 'creator__channel').prefetch_related('tags')
 
         # Optional filters
         category_id = request.query_params.get('category')
@@ -348,7 +348,7 @@ class MyVideosView(APIView):
     def get(self, request):
         queryset = Video.objects.filter(
             creator=request.user
-        ).select_related('category').prefetch_related('tags')
+        ).select_related('category', 'creator', 'creator__channel').prefetch_related('tags')
 
         video_status = request.query_params.get('status')
         if video_status:
@@ -379,7 +379,7 @@ class VideoDetailView(APIView):
 
     def get(self, request, video_id):
         video = get_object_or_404(
-            Video.objects.select_related('category', 'creator')
+            Video.objects.select_related('category', 'creator', 'creator__channel')
                          .prefetch_related('tags'),
             id=video_id
         )
@@ -905,7 +905,7 @@ class VideoSearchView(APIView):
                     + F('popularity') * Value(SEARCH_WEIGHT_POPULARITY)
                 )
             )
-            .select_related('category', 'creator')
+            .select_related('category', 'creator', 'creator__channel')
             .prefetch_related('tags')
         )
 
@@ -975,7 +975,7 @@ class TrendingVideosView(APIView):
                 id__in=video_ids,
                 status=Video.Status.PUBLISHED,
                 visibility=Video.Visibility.PUBLIC,
-            ).select_related('category', 'creator').prefetch_related('tags')
+            ).select_related('category', 'creator', 'creator__channel').prefetch_related('tags')
         }
 
         # Preserve ranking order; drop anything unpublished since it was watched.

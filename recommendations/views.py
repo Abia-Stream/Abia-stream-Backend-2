@@ -44,7 +44,7 @@ class RelatedVideosView(APIView):
                 id__in=related_ids,
                 status=Video.Status.PUBLISHED,
                 visibility=Video.Visibility.PUBLIC,
-            ).select_related('category', 'creator').prefetch_related('tags')
+            ).select_related('category', 'creator', 'creator__channel').prefetch_related('tags')
         }
 
         ordered = [videos[vid] for vid in related_ids if vid in videos]
@@ -143,7 +143,7 @@ class UpNextView(APIView):
             v.id: v for v in Video.objects.filter(
                 id__in=[vid for vid, _ in ordered], status=Video.Status.PUBLISHED,
                 visibility=Video.Visibility.PUBLIC,
-            ).select_related('category', 'creator').prefetch_related('tags')
+            ).select_related('category', 'creator', 'creator__channel').prefetch_related('tags')
         }
         final = [(playable[vid], reason) for vid, reason in ordered if vid in playable][:limit]
         data = VideoSerializer([v for v, _ in final], many=True,

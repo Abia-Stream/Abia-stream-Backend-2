@@ -12,6 +12,9 @@ from verification.smile_service import (
 from videos.cloudinary_service import upload_image_to_cloudinary
 from videos.file_security import validate_image_file
 from accounts.models import User
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class SubmitVerificationView(APIView):
@@ -30,6 +33,16 @@ class SubmitVerificationView(APIView):
 
     def post(self, request):
         user = request.user
+
+        # Checked before anything is uploaded: without keys the Smile call
+        # would fail after the ID document had already been stored.
+        if not (settings.SMILE_IDENTITY_PARTNER_ID and settings.SMILE_IDENTITY_API_KEY):
+            logger.error('Smile Identity is not configured (SMILE_IDENTITY_PARTNER_ID / '
+                         'SMILE_IDENTITY_API_KEY missing)')
+            return Response(
+                {'detail': 'Identity verification is temporarily unavailable. Please try again later.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
 
         # Already verified
         if user.verification_status == User.VerificationStatus.APPROVED:

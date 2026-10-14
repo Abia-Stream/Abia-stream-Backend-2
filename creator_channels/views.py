@@ -180,7 +180,7 @@ class ChannelVideosView(APIView):
             creator=channel.user,
             status=Video.Status.PUBLISHED,
             visibility=Video.Visibility.PUBLIC,
-        ).select_related('category').prefetch_related('tags').order_by('-published_at')
+        ).select_related('category', 'creator', 'creator__channel').prefetch_related('tags').order_by('-published_at')
 
         paginator = StandardPagination()
         page = paginator.paginate_queryset(videos, request)

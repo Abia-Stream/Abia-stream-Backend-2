@@ -276,6 +276,9 @@ Amounts are **kobo** (₦500 = `50000`). Full details: API DOCUMENTATION.md, Mon
 
 ## 15. Small things
 
+- **Videos carry their channel:** every video object now has `channel_slug` and `channel_name` (null if the creator has no channel). Link to `/channels/<channel_slug>/` from video cards.
+- **Sign-up errors:** `POST /auth/register/` needs `email`, `password` (8+ chars) and `full_name`. Show the field messages from a `400`: an email that is registered but unverified tells the user to use "Resend code" (`POST /auth/resend-otp/`), and a verified one tells them to log in. A `503` means the verification email couldn't be sent and **no account was created**, so show `detail` and let them retry.
+- **ID verification:** `POST /verification/submit/` returns `503` with a `detail` when verification is temporarily unavailable. Show it rather than a generic error.
 - Creator dashboard: `new_subscribers_last_28_days` now has real numbers.
 - `POST /playback/view/` response now includes `counted` (false for a repeat view in the same session within 30 min). Send `session_id` so de-duplication works.
 - Rate limits: reports 30/hour, chat 20/min, heartbeats 10/min, events 120 requests/min. Handle `429` quietly.
