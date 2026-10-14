@@ -254,7 +254,27 @@ Blocked videos show `status: "blocked"` in the creator's *My Videos* and can't b
 
 ---
 
-## 14. Small things
+## 14. Monetization
+
+Amounts are **kobo** (₦500 = `50000`). Full details: API DOCUMENTATION.md, Monetization section.
+
+- **Tip button** (video page, live page, channel): `POST /monetization/tips/`, then open `authorization_url`
+  (or Paystack Popup with `access_code` + `public_key`). On your Paystack callback page call
+  `GET /monetization/payments/<reference>/` and show success, pending or failed. Live tips arrive on the
+  stream websocket as `type: "tip"`; show them in chat.
+- **Join channel**: `GET /channels/<slug>/membership/` for the price and current membership;
+  `POST .../membership/join/` uses the same checkout flow. "My memberships" with cancel.
+- **Members-only videos**: visibility `members_only` in the upload/edit form; a non-member gets `403`,
+  so show "Join to watch".
+- **Creator > Monetization**: set the membership price (`PUT /channels/me/membership/`), earnings page
+  (`GET /monetization/earnings/`), bank account (`GET /monetization/payouts/banks/`,
+  `PUT /monetization/payouts/account/`), withdraw (`POST /monetization/payouts/`).
+- **Admin**: fee settings, monetization overview, ad revenue periods (create, review the preview, distribute).
+- New notifications: `tip_received`, `new_member`, `membership_payment`, `payout_paid`, `payout_failed`, `ad_share_credited`.
+
+---
+
+## 15. Small things
 
 - **Videos carry their channel:** every video object now has `channel_slug` and `channel_name` (null if the creator has no channel). Link to `/channels/<channel_slug>/` from video cards.
 - **Sign-up errors:** `POST /auth/register/` needs `email`, `password` (8+ chars) and `full_name`. Show the field messages from a `400`: an email that is registered but unverified tells the user to use "Resend code" (`POST /auth/resend-otp/`), and a verified one tells them to log in. A `503` means the verification email couldn't be sent and **no account was created**, so show `detail` and let them retry.
@@ -280,4 +300,5 @@ Blocked videos show `status: "blocked"` in the creator's *My Videos* and can't b
 - [ ] §11 Admin analytics
 - [ ] §12 "Under review" for `held` videos; size check with `max_file_size`; chat 400 message; `approve_video` in moderator UI
 - [ ] §13 Share button → `POST /videos/<id>/share/`; Admin › Users screen
-- [ ] §14 New notification types; `session_id` on view recording
+- [ ] §14 Tips, memberships, members-only, creator earnings/payouts, admin monetization
+- [ ] §15 New notification types; `session_id` on view recording
