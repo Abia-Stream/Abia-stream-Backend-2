@@ -6,6 +6,15 @@ What changed in the backend, newest first. Endpoint details live in
 
 ---
 
+## 2026-10-14: Production fixes (reported by the frontend)
+
+- **ID verification no longer crashes.** The Smile Identity settings were commented out, so `POST /verification/submit/` returned 500. They are now read from `SMILE_IDENTITY_PARTNER_ID`, `SMILE_IDENTITY_API_KEY` and `SMILE_IDENTITY_ENVIRONMENT` (`sandbox` by default, `production` for real checks). Until the keys are set, the endpoint answers 503 with a clear message instead of uploading the documents.
+- **`DEBUG` is off by default.** It used to fall back to on when unset; now it is on only if `DEBUG=True` is set explicitly.
+- **Videos include `channel_slug` and `channel_name`**, fetched in the same query as the video, so lists don't make an extra query per video.
+- **Password sign-up is all-or-nothing.** If the verification email can't be sent, no account is created and the API returns 503 (before, a half-created account blocked the email from registering again). Re-registering an unverified email now says to use "Resend code"; a verified email says to log in.
+
+---
+
 ## 2026-10-11: Admin user management and share counting
 
 - **Admins can appoint moderators and admins.** The user-management code existed but was never routed, so roles could only be changed in the database. New: `GET /admin/users/` (filter, search), `GET/PATCH /admin/users/<id>/`. Validated values, no changing your own role/status, and the active-admin rows are locked during a change so two admins can't demote each other at once and leave none.

@@ -95,11 +95,14 @@ class VideoSerializer(serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)
     creator_id = serializers.UUIDField(source='creator.id', read_only=True)
     streaming_url = serializers.SerializerMethodField()
+    # The channel the video belongs to (null if the creator has no channel).
+    channel_slug = serializers.SerializerMethodField()
+    channel_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Video
         fields = [
-            'id', 'creator_id', 'title', 'description',
+            'id', 'creator_id', 'channel_slug', 'channel_name', 'title', 'description',
             'cloudinary_url', 'cloudinary_thumbnail_url', 'streaming_url',
             'duration_seconds', 'width', 'height', 'format',
             'file_size', 'bitrate',
@@ -123,6 +126,20 @@ class VideoSerializer(serializers.ModelSerializer):
             else:
                 cache[video.pk] = playback_urls(video)
         return cache[video.pk]
+
+    def _channel(self, video):
+        try:
+            return video.creator.channel
+        except Exception:  # noqa: BLE001 - RelatedObjectDoesNotExist: creator has no channel
+            return None
+
+    def get_channel_slug(self, video):
+        channel = self._channel(video)
+        return channel.channel_slug if channel else None
+
+    def get_channel_name(self, video):
+        channel = self._channel(video)
+        return channel.channel_name if channel else None
 
     def get_streaming_url(self, video):
         return self._urls(video)['streaming_url']

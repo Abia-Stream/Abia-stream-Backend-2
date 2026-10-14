@@ -14,7 +14,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY')
 
 
-DEBUG = config('DEBUG', default=True, cast=bool)
+# Off unless explicitly enabled: a missing variable must never turn debug
+# pages (route lists, tracebacks, settings) on in production.
+DEBUG = config('DEBUG', default=False, cast=bool)
 
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='*').split(',')
 
@@ -470,6 +472,10 @@ MODERATION_BANNED_TERMS = config('MODERATION_BANNED_TERMS', default='', cast=Csv
 VIDEO_MAX_UPLOAD_BYTES_FALLBACK = config('VIDEO_MAX_UPLOAD_BYTES_FALLBACK',
                                          default=100 * 1024 * 1024, cast=int)
 
-# SMILE_IDENTITY_PARTNER_ID = config('SMILE_IDENTITY_PARTNER_ID')
-# SMILE_IDENTITY_API_KEY = config('SMILE_IDENTITY_API_KEY')
-# SMILE_IDENTITY_ENVIRONMENT = config('SMILE_IDENTITY_ENVIRONMENT', default='sandbox')
+# Smile Identity (verification/). Keys come from the Smile Identity portal;
+# the environment decides which API is called (sandbox: testapi.smileidentity.com,
+# production: api.smileidentity.com). Without keys, /verification/submit/
+# answers 503 instead of crashing.
+SMILE_IDENTITY_PARTNER_ID = config('SMILE_IDENTITY_PARTNER_ID', default='')
+SMILE_IDENTITY_API_KEY = config('SMILE_IDENTITY_API_KEY', default='')
+SMILE_IDENTITY_ENVIRONMENT = config('SMILE_IDENTITY_ENVIRONMENT', default='sandbox')

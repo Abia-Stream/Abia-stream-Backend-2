@@ -2,9 +2,19 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db import transaction
+from rest_framework.exceptions import APIException
+import logging
 
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
+
+
+class VerificationEmailUnavailable(APIException):
+    status_code = 503
+    default_detail = ("We couldn't send your verification code right now, so your account "
+                      "wasn't created. Please try again in a few minutes.")
+    default_code = 'verification_email_unavailable'
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -14,6 +24,18 @@ class RegisterSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['email', 'password', 'full_name']
+        # Uniqueness is checked in validate_email with a clearer message.
+        extra_kwargs = {'email': {'validators': []}}
+
+    def validate_email(self, value):
+        existing = User.objects.filter(email__iexact=value).first()
+        if existing is None:
+            return value
+        if not existing.is_email_verified:
+            raise serializers.ValidationError(
+                'This email is registered but not verified yet. Use "Resend code" to get a new '
+                'verification code.')
+        raise serializers.ValidationError('An account with this email already exists. Please log in.')
 
     def create(self, validated_data):
         from profiles.models import Profile
@@ -34,10 +56,20 @@ class RegisterSerializer(serializers.ModelSerializer):
 
                 Profile.objects.create(user=user, full_name=full_name)
 
+                # Inside the transaction: if the code can't be emailed, the
+                # account isn't created, so the user can simply try again
+                # (previously they were left unverified with no code).
+                try:
+                    send_verification_otp(user.email, otp)
+                except Exception:
+                    logger.exception('Verification email failed for a new registration')
+                    raise VerificationEmailUnavailable()
+
+        except VerificationEmailUnavailable:
+            raise
         except Exception as e:
             raise serializers.ValidationError({'detail': str(e)})
 
-        send_verification_otp(user.email, otp)
         return user
 
 class VerifyEmailSerializer(serializers.Serializer):
