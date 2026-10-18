@@ -268,6 +268,9 @@ REST_FRAMEWORK = {
         'live_heartbeat': '10/min',
         # Share button presses (interactions.ShareVideoView).
         'shares': '30/min',
+        # Identity verification: each Smile session / manual submission.
+        # Smile charges per job, so cap scripted retries.
+        'verification': '10/hour',
     },
 }
 SPECTACULAR_SETTINGS = {
@@ -425,13 +428,19 @@ LOGGING = {
     },
 }
 
+# Transactional email (OTP codes) goes through an HTTP API, not SMTP.
+#   resend - needs a verified domain; onboarding@resend.dev only delivers to
+#            the Resend account owner.
+#   brevo  - can send from a single verified address (no domain needed).
+EMAIL_PROVIDER = config('EMAIL_PROVIDER', default='resend')
 RESEND_API_KEY = config('RESEND_API_KEY', default='')
+BREVO_API_KEY = config('BREVO_API_KEY', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='onboarding@resend.dev')
+EMAIL_FROM_NAME = config('EMAIL_FROM_NAME', default='Abia Stream')
 
 # Keep SMTP for local development only
 if DEBUG:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-# No EMAIL_BACKEND needed for production — SendGrid uses its own client
 
 OTP_EXPIRY_MINUTES = 10
 

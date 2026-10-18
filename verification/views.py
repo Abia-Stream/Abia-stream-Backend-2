@@ -1,189 +1,172 @@
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-from django.utils import timezone
-from django.conf import settings
-
-from verification.smile_service import (
-    submit_kyc_verification,
-    check_verification_status,
-)
-from videos.cloudinary_service import upload_image_to_cloudinary
-from videos.file_security import validate_image_file
-from accounts.models import User
+"""
+Identity verification. Two ways in:
+  - Smile ID (automatic): GET /verification/config/, POST /verification/smile/session/,
+    then Smile's Web SDK; the verdict arrives at /verification/smile/callback/.
+  - Manual review: POST /verification/submit/ with photos; an admin decides.
+See FRONTEND_INTEGRATION.md, "Identity verification".
+"""
 import logging
 
+from django.conf import settings
+from rest_framework import status
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from accounts.models import User
+from moderation.permissions import IsAdmin
+from verification import services
+from verification import smile_service as smile
+from verification.models import VerificationAttempt as Attempt
+from videos.file_security import validate_image_file
+
 logger = logging.getLogger(__name__)
+
+# Document types offered on the manual form (Smile's hosted flow has its own picker).
+ID_TYPES = ['IDENTITY_CARD', 'DRIVERS_LICENSE', 'PASSPORT', 'VOTER_ID', 'RESIDENT_ID']
+# Older clients sent these names.
+LEGACY_ID_TYPES = {'NATIONAL_ID': 'IDENTITY_CARD', 'VOTERS_ID': 'VOTER_ID'}
+
+
+def _error(exc):
+    return Response({'detail': str(exc)}, status=exc.status_code)
+
+
+def _callback_url(request):
+    return request.build_absolute_uri('/api/v1/verification/smile/callback/')
+
+
+def _latest_attempt(user):
+    attempt = user.verification_attempts.order_by('-created_at').first()
+    if attempt is None:
+        return None
+    return {'id': str(attempt.id), 'method': attempt.method, 'status': attempt.status,
+            'message': attempt.result_message, 'created_at': attempt.created_at}
+
+
+class VerificationConfigView(APIView):
+    """
+    GET /api/v1/verification/config/
+    What the frontend needs to choose a flow and initialise Smile's Web SDK.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        enabled = smile.is_configured()
+        return Response({
+            'smile_enabled': enabled,
+            'manual_review_enabled': True,
+            'smile': {
+                'partner_id': str(settings.SMILE_IDENTITY_PARTNER_ID),
+                'environment': smile.environment(),
+                'product': smile.WEB_SDK_PRODUCT,
+                'callback_url': _callback_url(request),
+            } if enabled else None,
+            'manual_id_types': ID_TYPES,
+        })
+
+
+class SmileSessionView(APIView):
+    """
+    POST /api/v1/verification/smile/session/
+    Returns a 15-minute Smile token for window.SmileIdentity({token, ...}).
+    """
+    permission_classes = [IsAuthenticated]
+    throttle_scope = 'verification'
+
+    def post(self, request):
+        try:
+            token = services.start_smile_session(request.user)
+        except services.VerificationError as exc:
+            return _error(exc)
+        return Response({
+            'token': token,
+            'partner_id': str(settings.SMILE_IDENTITY_PARTNER_ID),
+            'environment': smile.environment(),
+            'product': smile.WEB_SDK_PRODUCT,
+            'callback_url': _callback_url(request),
+        })
+
+
+class SmileCallbackView(APIView):
+    """
+    POST /api/v1/verification/smile/callback/   (called by Smile ID)
+    The signature covers only a timestamp, so the body is never trusted: the
+    job's verdict is fetched from Smile before anything changes.
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        if not smile.webhook_signature_valid(request.headers.get('Response-Timestamp'),
+                                             request.headers.get('Response-Signature')):
+            return Response({'detail': 'Invalid signature.'}, status=status.HTTP_401_UNAUTHORIZED)
+        job_id = request.headers.get('smileid-job-id') or (
+            (request.data.get('partner_params') or {}).get('job_id')
+            if isinstance(request.data, dict) else None)
+        if not job_id or not smile.JOB_ID_RE.match(job_id):
+            return Response({'detail': 'Missing job id.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            attempt, verdict = services.sync_smile_job(job_id)
+        except services.VerificationError as exc:
+            # Unknown job or user: acknowledge so Smile stops retrying.
+            logger.warning('Smile callback for %s ignored: %s', job_id, exc)
+            return Response({'result': 'ignored'})
+        except smile.SmileError:
+            logger.exception('Smile status check failed for %s', job_id)
+            # Non-2xx makes Smile retry the webhook.
+            return Response({'detail': 'Temporarily unavailable.'},
+                            status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response({'result': attempt.status, 'smile_status': verdict})
 
 
 class SubmitVerificationView(APIView):
     """
-    Submit ID verification to Smile Identity.
-
-    POST /api/v1/verification/submit/
-    Content-Type: multipart/form-data
-
-    Fields:
-      id_document  → File → front of ID card/passport/driver's license
-      selfie       → File → user's selfie photo
-      id_type      → Text → NATIONAL_ID | DRIVERS_LICENSE | PASSPORT | VOTERS_ID
+    POST /api/v1/verification/submit/   (multipart/form-data)
+    Manual review: id_document (file), selfie (file), id_type (see config).
+    Photos are stored privately and only admins can view them.
     """
     permission_classes = [IsAuthenticated]
+    throttle_scope = 'verification'
 
     def post(self, request):
-        user = request.user
+        reason = services.can_start(request.user)
+        if reason:
+            return Response({'detail': reason}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Checked before anything is uploaded: without keys the Smile call
-        # would fail after the ID document had already been stored.
-        if not (settings.SMILE_IDENTITY_PARTNER_ID and settings.SMILE_IDENTITY_API_KEY):
-            logger.error('Smile Identity is not configured (SMILE_IDENTITY_PARTNER_ID / '
-                         'SMILE_IDENTITY_API_KEY missing)')
-            return Response(
-                {'detail': 'Identity verification is temporarily unavailable. Please try again later.'},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE
-            )
-
-        # Already verified
-        if user.verification_status == User.VerificationStatus.APPROVED:
-            return Response(
-                {'detail': 'Your identity is already verified.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Already pending
-        if user.verification_status == User.VerificationStatus.PENDING:
-            return Response(
-                {'detail': 'Your verification is pending review.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Get files
         id_document = request.FILES.get('id_document')
         selfie = request.FILES.get('selfie')
-        id_type = request.data.get('id_type', 'NATIONAL_ID')
-
+        id_type = request.data.get('id_type', 'IDENTITY_CARD')
+        id_type = LEGACY_ID_TYPES.get(id_type, id_type)
         if not id_document:
-            return Response(
-                {'detail': 'id_document is required.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
+            return Response({'detail': 'id_document is required.'}, status=status.HTTP_400_BAD_REQUEST)
         if not selfie:
-            return Response(
-                {'detail': 'selfie is required.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Validate id_type
-        valid_id_types = ['NATIONAL_ID', 'DRIVERS_LICENSE', 'PASSPORT', 'VOTERS_ID']
-        if id_type not in valid_id_types:
-            return Response(
-                {'detail': f'Invalid id_type. Choose from: {valid_id_types}'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Security checks on files
+            return Response({'detail': 'selfie is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if id_type not in ID_TYPES:
+            return Response({'detail': f'Invalid id_type. Choose from: {ID_TYPES}'},
+                            status=status.HTTP_400_BAD_REQUEST)
         try:
             validate_image_file(id_document)
             validate_image_file(selfie)
-        except Exception as e:
-            return Response(
-                {'detail': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        except Exception as exc:  # noqa: BLE001 - validation errors carry the user message
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Upload ID document to Cloudinary for records
         try:
-            id_result = upload_image_to_cloudinary(
-                id_document,
-                folder='abia_stream/verification_docs'
-            )
-            id_document_url = id_result['secure_url']
-        except Exception as e:
-            return Response(
-                {'detail': f'Document upload failed: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-        # Reset file pointers after Cloudinary upload
-        id_document.seek(0)
-        selfie.seek(0)
-
-        # Submit to Smile Identity
-        result, job_id = submit_kyc_verification(
-            user=user,
-            id_image_file=id_document,
-            selfie_image_file=selfie,
-            id_type=id_type
-        )
-
-        if 'error' in result:
-            return Response(
-                {'detail': f'Verification submission failed: {result["error"]}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-        # Check immediate result from Smile Identity
-        job_result = result.get('result', {})
-        result_code = job_result.get('ResultCode', '')
-        result_text = job_result.get('ResultText', '')
-
-        # Smile Identity result codes:
-        # 0810 = Exact Match (verified)
-        # 0811 = Partial Match
-        # 0812 = No Match (failed)
-
-        if result_code in ['0810', '0811']:
-            # Verified immediately
-            user.verification_status = User.VerificationStatus.APPROVED
-            user.verification_job_id = job_id
-            user.id_document_url = id_document_url
-            user.verified_at = timezone.now()
-            user.save(update_fields=[
-                'verification_status', 'verification_job_id',
-                'id_document_url', 'verified_at'
-            ])
-
-            return Response({
-                'detail': 'Identity verified successfully. You can now create a channel.',
-                'verification_status': 'approved',
-                'result_text': result_text,
-            }, status=status.HTTP_200_OK)
-
-        elif result_code == '0812':
-            # Failed
-            user.verification_status = User.VerificationStatus.REJECTED
-            user.verification_job_id = job_id
-            user.save(update_fields=['verification_status', 'verification_job_id'])
-
-            return Response({
-                'detail': 'Identity verification failed. Please try again with a clearer image.',
-                'verification_status': 'rejected',
-                'result_text': result_text,
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        else:
-            # Pending — manual review needed
-            user.verification_status = User.VerificationStatus.PENDING
-            user.verification_job_id = job_id
-            user.id_document_url = id_document_url
-            user.save(update_fields=[
-                'verification_status', 'verification_job_id', 'id_document_url'
-            ])
-
-            return Response({
-                'detail': 'Verification submitted. Under review — you will be notified once approved.',
-                'verification_status': 'pending',
-            }, status=status.HTTP_202_ACCEPTED)
+            services.submit_manual(request.user, id_document, selfie, id_type)
+        except services.VerificationError as exc:
+            return _error(exc)
+        except Exception:  # noqa: BLE001 - Cloudinary failure
+            logger.exception('Verification document upload failed')
+            return Response({'detail': 'We could not upload your documents. Please try again.'},
+                            status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response({
+            'detail': 'Verification submitted. Under review — you will be notified once approved.',
+            'verification_status': User.VerificationStatus.PENDING,
+        }, status=status.HTTP_202_ACCEPTED)
 
 
 class VerificationStatusView(APIView):
-    """
-    Check the authenticated user's verification status.
-
-    GET /api/v1/verification/status/
-    """
+    """GET /api/v1/verification/status/"""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -192,113 +175,137 @@ class VerificationStatusView(APIView):
             'verification_status': user.verification_status,
             'verified_at': user.verified_at,
             'can_create_channel': user.verification_status == User.VerificationStatus.APPROVED,
+            'latest_attempt': _latest_attempt(user),
         })
 
 
 class CheckVerificationJobView(APIView):
     """
-    Check status of a pending verification job.
-    Called when user wants to check if their pending verification was approved.
-
-    GET /api/v1/verification/check/
+    POST /api/v1/verification/check/  {"job_id": "job_..."}   after Smile's onResult
+    GET  /api/v1/verification/check/                          re-check the latest Smile job
+    Asks Smile for the verdict now instead of waiting for the webhook.
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        attempt = (request.user.verification_attempts
+                   .filter(method=Attempt.Method.SMILE, smile_job_id__isnull=False)
+                   .order_by('-created_at').first())
+        return self._check(request, attempt.smile_job_id if attempt else None)
+
+    def post(self, request):
+        return self._check(request, request.data.get('job_id'))
+
+    def _check(self, request, job_id):
         user = request.user
-
-        if not user.verification_job_id:
-            return Response(
-                {'detail': 'No verification job found.'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        if user.verification_status == User.VerificationStatus.APPROVED:
-            return Response({
-                'verification_status': 'approved',
-                'verified_at': user.verified_at,
-                'can_create_channel': True,
-            })
-
-        # Check with Smile Identity
-        result = check_verification_status(
-            job_id=user.verification_job_id,
-            user_id=user.id
-        )
-
-        job_result = result.get('result', {})
-        result_code = job_result.get('ResultCode', '')
-
-        if result_code in ['0810', '0811']:
-            user.verification_status = User.VerificationStatus.APPROVED
-            user.verified_at = timezone.now()
-            user.save(update_fields=['verification_status', 'verified_at'])
-
-            return Response({
-                'verification_status': 'approved',
-                'verified_at': user.verified_at,
-                'can_create_channel': True,
-            })
-
+        if not job_id:
+            return Response({'detail': 'No verification job found.'}, status=status.HTTP_404_NOT_FOUND)
+        if not smile.JOB_ID_RE.match(str(job_id)):
+            return Response({'detail': 'Invalid job_id.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not smile.is_configured():
+            return Response({'detail': 'Identity verification is temporarily unavailable.'},
+                            status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        try:
+            services.sync_smile_job(job_id, user=user)
+        except services.VerificationError as exc:
+            return _error(exc)
+        except smile.SmileError:
+            logger.exception('Smile status check failed for %s', job_id)
+            return Response({'detail': 'Could not check with the verification provider. Try again shortly.'},
+                            status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        user.refresh_from_db()
         return Response({
             'verification_status': user.verification_status,
-            'can_create_channel': False,
+            'verified_at': user.verified_at,
+            'can_create_channel': user.verification_status == User.VerificationStatus.APPROVED,
+            'latest_attempt': _latest_attempt(user),
         })
+
+
+# ── Admin ─────────────────────────────────────────────────────────────────────
+
+def _full_name(user):
+    profile = getattr(user, 'profile', None)    # None when the user has no profile row
+    return profile.full_name if profile else None
+
+
+def _attempt_for_admin(attempt):
+    user = attempt.user
+    return {
+        'id': str(attempt.id),
+        'method': attempt.method,
+        'status': attempt.status,
+        'id_type': attempt.id_type,
+        'smile_job_id': attempt.smile_job_id,
+        'result_status': attempt.result_status,
+        'result_message': attempt.result_message,
+        # Signed, private links. Smile's own photos are in the Smile portal.
+        'document_url': services.signed_image_url(attempt.document_public_id),
+        'selfie_url': services.signed_image_url(attempt.selfie_public_id),
+        'created_at': attempt.created_at,
+        'reviewed_at': attempt.reviewed_at,
+        'review_note': attempt.review_note,
+        'user': {'id': str(user.id), 'email': user.email, 'full_name': _full_name(user),
+                 'verification_status': user.verification_status},
+    }
+
+
+class ReviewQueueView(APIView):
+    """
+    GET /api/v1/verification/review/?status=pending|attention
+    Attempts awaiting an admin decision, oldest first.
+    """
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        statuses = Attempt.IN_REVIEW
+        if request.query_params.get('status') in statuses:
+            statuses = (request.query_params['status'],)
+        attempts = (Attempt.objects.filter(status__in=statuses)
+                    .select_related('user', 'user__profile').order_by('created_at')[:100])
+        return Response({'results': [_attempt_for_admin(a) for a in attempts]})
+
+
+class ReviewAttemptView(APIView):
+    """
+    PATCH /api/v1/verification/review/attempts/<attempt_id>/
+    {"decision": "approve" | "reject", "note": "optional"}
+    """
+    permission_classes = [IsAdmin]
+
+    def patch(self, request, attempt_id):
+        try:
+            attempt = services.review(attempt_id, request.user, request.data.get('decision'),
+                                      request.data.get('note'))
+        except services.VerificationError as exc:
+            return _error(exc)
+        return Response(_attempt_for_admin(attempt))
 
 
 class AdminReviewVerificationView(APIView):
     """
-    Admin endpoint to manually approve or reject a pending verification.
-
-    PATCH /api/v1/verification/review/<user_id>/
+    PATCH /api/v1/verification/review/<user_id>/   {"decision": "approve" | "reject"}
+    Older per-user endpoint: decides the user's attempt in review, or records
+    a manual override if they have none.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]
 
     def patch(self, request, user_id):
-        if request.user.role != 'admin':
-            return Response(
-                {'detail': 'Admin access required.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
         from django.shortcuts import get_object_or_404
-        target_user = get_object_or_404(User, id=user_id)
-
-        decision = request.data.get('decision')  # 'approve' or 'reject'
-        if decision not in ['approve', 'reject']:
-            return Response(
-                {'detail': 'decision must be approve or reject.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if decision == 'approve':
-            target_user.verification_status = User.VerificationStatus.APPROVED
-            target_user.verified_at = timezone.now()
-            target_user.save(update_fields=['verification_status', 'verified_at'])
-
-            # Notify user
-            from notifications.utils import create_notification
-            create_notification(
-                user=target_user,
-                notification_type='verification_approved',
-                title='Identity Verified',
-                message='Your identity has been verified. You can now create a channel.',
-                data={}
-            )
-
-            return Response({'detail': 'User verification approved.'})
-
-        else:
-            target_user.verification_status = User.VerificationStatus.REJECTED
-            target_user.save(update_fields=['verification_status'])
-
-            from notifications.utils import create_notification
-            create_notification(
-                user=target_user,
-                notification_type='verification_rejected',
-                title='Verification Failed',
-                message='Your identity verification was rejected. Please resubmit with clearer images.',
-                data={}
-            )
-
-            return Response({'detail': 'User verification rejected.'})
+        target = get_object_or_404(User, id=user_id)
+        decision = request.data.get('decision')
+        if decision not in ('approve', 'reject'):
+            return Response({'detail': 'decision must be approve or reject.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        attempt = (target.verification_attempts.filter(status__in=Attempt.IN_REVIEW)
+                   .order_by('-created_at').first())
+        if attempt is None:
+            attempt = Attempt.objects.create(user=target, method=Attempt.Method.MANUAL,
+                                             status=Attempt.Status.PENDING,
+                                             review_note='Admin override without submitted documents')
+        try:
+            services.review(attempt.id, request.user, decision, request.data.get('note'))
+        except services.VerificationError as exc:
+            return _error(exc)
+        verb = 'approved' if decision == 'approve' else 'rejected'
+        return Response({'detail': f'User verification {verb}.'})

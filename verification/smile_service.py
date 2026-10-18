@@ -1,119 +1,126 @@
+"""
+Smile ID v3 client for Document Verification through the Smile Web SDK.
+
+Flow:
+  1. The frontend asks us for a session token (mint_token). We bind our user
+     id into it, so the job Smile creates is tied to that user.
+  2. The frontend runs Smile's hosted capture flow (selfie, liveness frames,
+     ID document) and submits straight to Smile.
+  3. Smile POSTs the verdict to our webhook. Its signature only covers a
+     timestamp, not the body, so the webhook is treated as a "go and check"
+     signal: the verdict we act on always comes from get_status().
+
+Docs: https://docs.usesmileid.com/api-reference/authentication
+      https://docs.usesmileid.com/api-reference/core-resources/verification-status
+      https://docs.usesmileid.com/developer-resources/essentials/verification-webhooks/receive-webhooks
+"""
 import base64
 import hashlib
-import json
-import time
+import hmac
+import re
+
 import requests
 from django.conf import settings
 
+SANDBOX_URL = 'https://testapi.smileidentity.com'
+PRODUCTION_URL = 'https://api.smileidentity.com'
+TOKEN_PRODUCT = 'document_verification'      # name used by POST /v3/token
+WEB_SDK_PRODUCT = 'doc_verification'         # name used by window.SmileIdentity
+TIMEOUT = 20
+JOB_ID_RE = re.compile(r'^job_[0-9a-hjkmnp-tv-z]{26}$')
 
-SMILE_SANDBOX_URL = 'https://testapi.smileidentity.com/v1'
-SMILE_PROD_URL = 'https://api.smileidentity.com/v1'
-
-
-def get_api_url():
-    if settings.SMILE_IDENTITY_ENVIRONMENT == 'production':
-        return SMILE_PROD_URL
-    return SMILE_SANDBOX_URL
-
-
-def encode_image(image_file):
-    """Convert image file to base64."""
-    image_file.seek(0)
-    return base64.b64encode(image_file.read()).decode('utf-8')
+# Terminal verdicts returned by GET /v3/status/{job_id}.
+CLEAR, ATTENTION, BLOCK, ERROR, PROCESSING, NOT_FOUND = (
+    'clear', 'attention', 'block', 'error', 'processing', 'not_found')
+TERMINAL = (CLEAR, ATTENTION, BLOCK, ERROR)
 
 
-def generate_signature():
-    """Generate Smile Identity API signature."""
-    timestamp = str(int(time.time()))
-    partner_id = settings.SMILE_IDENTITY_PARTNER_ID
-    api_key = settings.SMILE_IDENTITY_API_KEY
-
-    signature_string = f'{timestamp}{partner_id}{api_key}'
-    signature = hashlib.sha256(signature_string.encode()).hexdigest()
-
-    return {
-        'signature': signature,
-        'timestamp': timestamp,
-    }
+class SmileError(Exception):
+    """Smile could not be reached or refused the request."""
 
 
-def submit_kyc_verification(user, id_image_file, selfie_image_file, id_type='NATIONAL_ID'):
-    """
-    Submit KYC verification to Smile Identity.
+def is_configured():
+    return bool(settings.SMILE_IDENTITY_PARTNER_ID and settings.SMILE_IDENTITY_API_KEY)
 
-    id_type options:
-    - NATIONAL_ID
-    - DRIVERS_LICENSE
-    - PASSPORT
-    - VOTERS_ID
-    """
-    sig = generate_signature()
 
-    # Encode images to base64
-    id_image_b64 = encode_image(id_image_file)
-    selfie_b64 = encode_image(selfie_image_file)
+def environment():
+    return 'production' if settings.SMILE_IDENTITY_ENVIRONMENT == 'production' else 'sandbox'
 
-    job_id = f'job_{user.id}_{int(time.time())}'
 
-    payload = {
-        'source_sdk': 'rest_api',
-        'source_sdk_version': '1.0.0',
-        'partner_id': settings.SMILE_IDENTITY_PARTNER_ID,
-        'signature': sig['signature'],
-        'timestamp': sig['timestamp'],
-        'smile_client_id': str(user.id),
-        'job_id': job_id,
-        'job_type': 1,  # 1 = SmartSelfie + ID verification
-        'country': 'NG',  # Nigeria — update based on user's country
-        'id_type': id_type,
-        'images': [
-            {
-                'image_type_id': 1,  # selfie
-                'image': selfie_b64,
-            },
-            {
-                'image_type_id': 3,  # ID document front
-                'image': id_image_b64,
-            },
-        ],
-        'return_job_status': True,
-        'return_history': False,
-        'return_images': False,
-    }
+def base_url():
+    return PRODUCTION_URL if environment() == 'production' else SANDBOX_URL
 
+
+def smile_user_id(user):
+    """The user id bound into tokens and echoed back in results."""
+    return str(user.id)
+
+
+def _api_error(response):
+    try:
+        message = response.json().get('message')
+    except ValueError:
+        message = None
+    return SmileError(f'Smile ID returned {response.status_code}: {message or response.text[:200]}')
+
+
+def mint_token(user_id=None):
+    """POST /v3/token. Tokens live 15 minutes; mint one per session."""
+    data = {'product': TOKEN_PRODUCT}
+    if user_id:
+        data['user_id'] = user_id
     try:
         response = requests.post(
-            f'{get_api_url()}/submission',
-            json=payload,
-            timeout=30
+            f'{base_url()}/v3/token',
+            headers={'smileid-partner-id': str(settings.SMILE_IDENTITY_PARTNER_ID),
+                     'smileid-api-key': settings.SMILE_IDENTITY_API_KEY},
+            # multipart/form-data, as the endpoint requires
+            files={key: (None, value) for key, value in data.items()},
+            timeout=TIMEOUT,
         )
-        result = response.json()
-        return result, job_id
-    except Exception as e:
-        return {'error': str(e)}, job_id
+    except requests.RequestException as exc:
+        raise SmileError(f'Could not reach Smile ID: {exc}') from exc
+    if response.status_code != 200:
+        raise _api_error(response)
+    token = response.json().get('token')
+    if not token:
+        raise SmileError('Smile ID returned no token.')
+    return token
 
 
-def check_verification_status(job_id, user_id):
-    """Check the status of a verification job."""
-    sig = generate_signature()
-
-    payload = {
-        'partner_id': settings.SMILE_IDENTITY_PARTNER_ID,
-        'signature': sig['signature'],
-        'timestamp': sig['timestamp'],
-        'job_id': job_id,
-        'user_id': str(user_id),
-        'return_job_status': True,
-        'return_history': False,
-        'return_images': False,
-    }
-
+def get_status(job_id):
+    """
+    GET /v3/status/{job_id} -> {'status', 'user_id', 'message', ...}.
+    status is one of clear, attention, block, error, processing, not_found.
+    """
+    if not JOB_ID_RE.match(job_id or ''):
+        raise ValueError('Not a Smile ID job id.')
+    token = mint_token()
     try:
-        response = requests.post(
-            f'{get_api_url()}/job_status',
-            json=payload,
-            timeout=30
+        response = requests.get(
+            f'{base_url()}/v3/status/{job_id}',
+            headers={'SmileID-Partner-ID': str(settings.SMILE_IDENTITY_PARTNER_ID),
+                     'SmileID-Token': token},
+            timeout=TIMEOUT,
         )
-        return response.json()
-    except Exception as e:
-        return {'error': str(e)}
+    except requests.RequestException as exc:
+        raise SmileError(f'Could not reach Smile ID: {exc}') from exc
+    if response.status_code == 404:
+        return {'status': NOT_FOUND, 'user_id': None, 'message': 'Job not found.'}
+    if response.status_code not in (200, 202):
+        raise _api_error(response)
+    return response.json()
+
+
+def expected_signature(timestamp):
+    digest = hmac.new(settings.SMILE_IDENTITY_API_KEY.encode('utf-8'),
+                      f'{timestamp}{settings.SMILE_IDENTITY_PARTNER_ID}sid_request'.encode('utf-8'),
+                      hashlib.sha256).digest()
+    return base64.b64encode(digest).decode('ascii')
+
+
+def webhook_signature_valid(timestamp, signature):
+    """Response-Signature = base64(HMAC-SHA256(api_key, timestamp + partner_id + 'sid_request'))."""
+    if not (is_configured() and timestamp and signature):
+        return False
+    return hmac.compare_digest(expected_signature(timestamp), signature)
