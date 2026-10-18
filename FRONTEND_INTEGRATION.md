@@ -278,10 +278,50 @@ Amounts are **kobo** (₦500 = `50000`). Full details: API DOCUMENTATION.md, Mon
 
 - **Videos carry their channel:** every video object now has `channel_slug` and `channel_name` (null if the creator has no channel). Link to `/channels/<channel_slug>/` from video cards.
 - **Sign-up errors:** `POST /auth/register/` needs `email`, `password` (8+ chars) and `full_name`. Show the field messages from a `400`: an email that is registered but unverified tells the user to use "Resend code" (`POST /auth/resend-otp/`), and a verified one tells them to log in. A `503` means the verification email couldn't be sent and **no account was created**, so show `detail` and let them retry.
-- **ID verification:** `POST /verification/submit/` returns `503` with a `detail` when verification is temporarily unavailable. Show it rather than a generic error.
 - Creator dashboard: `new_subscribers_last_28_days` now has real numbers.
 - `POST /playback/view/` response now includes `counted` (false for a repeat view in the same session within 30 min). Send `session_id` so de-duplication works.
 - Rate limits: reports 30/hour, chat 20/min, heartbeats 10/min, events 120 requests/min. Handle `429` quietly.
+
+## 16. Identity verification (rebuilt)
+
+Creating a channel needs an approved ID verification, and **nobody can be verified today**: the old Smile code
+never worked. There are now two paths. Ask `GET /verification/config/` which ones are available:
+
+```json
+{"smile_enabled": true, "manual_review_enabled": true,
+ "smile": {"partner_id": "…", "environment": "sandbox", "product": "doc_verification",
+           "callback_url": "https://…/api/v1/verification/smile/callback/"},
+ "manual_id_types": ["IDENTITY_CARD", "DRIVERS_LICENSE", "PASSPORT", "VOTER_ID", "RESIDENT_ID"]}
+```
+
+**A. Automatic (Smile ID), when `smile_enabled` is true.** Smile needs a live camera capture (selfie plus
+liveness frames), so use their hosted Web SDK rather than a file upload:
+
+1. Load `<script src="https://cdn.usesmileid.com/inline/v12/js/script.min.js"></script>`.
+2. `POST /verification/smile/session/` returns `{token, partner_id, environment, product, callback_url}`.
+   Get a fresh token for each attempt (they last 15 minutes).
+3. Call `window.SmileIdentity({token, product, callback_url, environment, partner_details: {partner_id,
+   name: 'Abia Stream', logo_url, policy_url, theme_color}, onResult})`. All five `partner_details` fields are
+   required. The page must be HTTPS so the browser allows the camera.
+4. In `onResult`, if Smile gives you a `job_id`, send it to `POST /verification/check/` with
+   `{"job_id": "job_…"}` and show the returned `verification_status`. The final answer also arrives by webhook,
+   so `GET /verification/status/` will catch up even if this step is skipped.
+
+Results: `approved` (can create a channel), `pending` (still processing, or Smile asked for a human review),
+`rejected` (may try again), or back to `not_submitted` if Smile couldn't process the photos (also try again).
+
+**B. Manual review, always available.** This is the existing form: `POST /verification/submit/` (multipart)
+with `id_document`, `selfie` and `id_type`, using one of `manual_id_types`. The old `NATIONAL_ID` and
+`VOTERS_ID` names still work. The photos are stored privately, the response is `202` with `pending`, and an
+admin decides. Use this when `smile_enabled` is false, or as a "Can't use your camera?" option.
+
+`GET /verification/status/` now also returns `latest_attempt` (`method`, `status`, `message`). New notification:
+`verification_error`.
+
+**Admin › Verification** (role `admin`): `GET /verification/review/` lists attempts awaiting a decision, oldest
+first, with private photo links (`document_url`, `selfie_url`; for Smile attempts, see the photos in the Smile
+portal). Decide with `PATCH /verification/review/attempts/<attempt_id>/` and
+`{"decision": "approve" | "reject", "note": "…"}`.
 
 ---
 
@@ -302,3 +342,4 @@ Amounts are **kobo** (₦500 = `50000`). Full details: API DOCUMENTATION.md, Mon
 - [ ] §13 Share button → `POST /videos/<id>/share/`; Admin › Users screen
 - [ ] §14 Tips, memberships, members-only, creator earnings/payouts, admin monetization
 - [ ] §15 New notification types; `session_id` on view recording
+- [ ] §16 Identity verification: Smile Web SDK flow, manual form fallback, Admin › Verification queue

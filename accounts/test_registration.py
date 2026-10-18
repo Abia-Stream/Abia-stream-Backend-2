@@ -1,7 +1,7 @@
 """Password sign-up end to end, plus the production issues reported on 14 Oct 2026."""
 from unittest import mock
 
-from django.test import TestCase, override_settings
+from django.test import TestCase
 
 from abiastream.testing import client_for, make_user, make_video
 from accounts.models import User
@@ -68,25 +68,6 @@ class PasswordSignupTests(TestCase):
                                      format='json')
         self.assertEqual(response.status_code, 400)
         self.assertIn('full_name', response.json())
-
-
-class SmileIdentityConfigTests(TestCase):
-
-    @override_settings(SMILE_IDENTITY_PARTNER_ID='', SMILE_IDENTITY_API_KEY='')
-    def test_unconfigured_returns_503_before_uploading(self):
-        with mock.patch('verification.views.upload_image_to_cloudinary') as upload:
-            response = client_for(make_user()).post('/api/v1/verification/submit/', {}, format='multipart')
-        self.assertEqual(response.status_code, 503)
-        upload.assert_not_called()
-
-    @override_settings(SMILE_IDENTITY_PARTNER_ID='1234', SMILE_IDENTITY_API_KEY='key')
-    def test_configured_reaches_validation(self):
-        response = client_for(make_user()).post('/api/v1/verification/submit/', {}, format='multipart')
-        self.assertEqual(response.status_code, 400)       # id_document is required
-
-    def test_settings_exist_with_safe_defaults(self):
-        from django.conf import settings
-        self.assertEqual(settings.SMILE_IDENTITY_ENVIRONMENT, 'sandbox')
 
 
 class DebugDefaultTests(TestCase):

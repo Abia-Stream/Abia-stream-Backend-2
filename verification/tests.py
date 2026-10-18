@@ -1,3 +1,297 @@
-from django.test import TestCase
+"""Identity verification: Smile ID v3 (token, webhook, status) and manual review."""
+import base64
+import hashlib
+import hmac
+from unittest import mock
 
-# Create your tests here.
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
+
+from abiastream.testing import client_for, make_user
+from accounts.models import User
+from notifications.models import Notification
+from verification import smile_service as smile
+from verification.models import VerificationAttempt as Attempt
+
+SMILE = dict(SMILE_IDENTITY_PARTNER_ID='2001', SMILE_IDENTITY_API_KEY='test-api-key',
+             SMILE_IDENTITY_ENVIRONMENT='sandbox')
+NO_SMILE = dict(SMILE_IDENTITY_PARTNER_ID='', SMILE_IDENTITY_API_KEY='')
+JOB = 'job_01m326p53pe1ztjdxh2d9jn9ck'
+OTHER_JOB = 'job_01m326p53pe1ztjdxh2d9jn9cm'
+CALLBACK = '/api/v1/verification/smile/callback/'
+
+
+def png(name='id.png'):
+    return SimpleUploadedFile(name, b'\x89PNG\r\n\x1a\n' + b'\x00' * 2048, content_type='image/png')
+
+
+def smile_headers(timestamp='2026-10-18T10:00:00.000000+00:00', key='test-api-key', partner='2001'):
+    # Computed independently from the documented formula.
+    signature = base64.b64encode(hmac.new(key.encode(), f'{timestamp}{partner}sid_request'.encode(),
+                                          hashlib.sha256).digest()).decode()
+    return {'HTTP_RESPONSE_TIMESTAMP': timestamp, 'HTTP_RESPONSE_SIGNATURE': signature,
+            'HTTP_SMILEID_JOB_ID': JOB}
+
+
+def status_of(user, verdict, message='done'):
+    return {'status': verdict, 'user_id': str(user.id), 'message': message, 'job_id': JOB}
+
+
+@override_settings(**SMILE)
+class SmileSessionTests(TestCase):
+
+    def test_config_exposes_sdk_settings_but_no_secret(self):
+        body = client_for(make_user()).get('/api/v1/verification/config/').json()
+        self.assertTrue(body['smile_enabled'])
+        self.assertEqual(body['smile']['partner_id'], '2001')
+        self.assertEqual(body['smile']['product'], 'doc_verification')
+        self.assertTrue(body['smile']['callback_url'].endswith(CALLBACK))
+        self.assertNotIn('test-api-key', str(body))
+
+    @override_settings(**NO_SMILE)
+    def test_config_without_keys_offers_manual_only(self):
+        body = client_for(make_user()).get('/api/v1/verification/config/').json()
+        self.assertEqual((body['smile_enabled'], body['smile'], body['manual_review_enabled']),
+                         (False, None, True))
+
+    def test_session_binds_user_and_opens_attempt(self):
+        user = make_user()
+        with mock.patch.object(smile, 'mint_token', return_value='jwt-token') as mint:
+            response = client_for(user).post('/api/v1/verification/smile/session/')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['token'], 'jwt-token')
+        mint.assert_called_once_with(str(user.id))
+        attempt = Attempt.objects.get(user=user)
+        self.assertEqual((attempt.method, attempt.status), ('smile', 'started'))
+
+    def test_session_refused_when_already_verified_or_pending(self):
+        for state in (User.VerificationStatus.APPROVED, User.VerificationStatus.PENDING):
+            user = make_user(verification_status=state)
+            with mock.patch.object(smile, 'mint_token') as mint:
+                response = client_for(user).post('/api/v1/verification/smile/session/')
+            self.assertEqual(response.status_code, 400)
+            mint.assert_not_called()
+
+    @override_settings(**NO_SMILE)
+    def test_session_without_keys_points_to_manual_review(self):
+        response = client_for(make_user()).post('/api/v1/verification/smile/session/')
+        self.assertEqual(response.status_code, 503)
+        self.assertIn('manual review', response.json()['detail'])
+
+    def test_smile_outage_is_503(self):
+        with mock.patch.object(smile, 'mint_token', side_effect=smile.SmileError('down')):
+            response = client_for(make_user()).post('/api/v1/verification/smile/session/')
+        self.assertEqual(response.status_code, 503)
+
+    def test_token_request_shape(self):
+        response = mock.Mock(status_code=200, json=lambda: {'token': 't'})
+        with mock.patch.object(smile.requests, 'post', return_value=response) as post:
+            self.assertEqual(smile.mint_token('user-1'), 't')
+        args, kwargs = post.call_args
+        self.assertEqual(args[0], 'https://testapi.smileidentity.com/v3/token')
+        self.assertEqual(kwargs['headers'], {'smileid-partner-id': '2001', 'smileid-api-key': 'test-api-key'})
+        self.assertEqual(kwargs['files'], {'product': (None, 'document_verification'),
+                                           'user_id': (None, 'user-1')})
+
+    @override_settings(SMILE_IDENTITY_ENVIRONMENT='production')
+    def test_production_url(self):
+        self.assertEqual(smile.base_url(), 'https://api.smileidentity.com')
+
+
+@override_settings(**SMILE)
+class SmileCallbackTests(TestCase):
+
+    def setUp(self):
+        self.user = make_user()
+        Attempt.objects.create(user=self.user, method='smile')
+
+    def callback(self, verdict, body=None, **headers):
+        with mock.patch.object(smile, 'get_status', return_value=status_of(self.user, verdict)) as get,                 self.captureOnCommitCallbacks(execute=True):
+            response = client_for().post(CALLBACK, body or {'status': verdict}, format='json',
+                                         **{**smile_headers(), **headers})
+        return response, get
+
+    def test_wrong_signature_rejected_before_any_lookup(self):
+        response, get = self.callback('clear', HTTP_RESPONSE_SIGNATURE='forged')
+        self.assertEqual(response.status_code, 401)
+        get.assert_not_called()
+
+    def test_clear_approves_and_notifies_once(self):
+        response, get = self.callback('clear')
+        self.assertEqual(response.status_code, 200, response.content)
+        get.assert_called_once_with(JOB)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.verification_status, 'approved')
+        self.assertEqual(self.user.verification_job_id, JOB)
+        self.assertIsNotNone(self.user.verified_at)
+        self.callback('clear')                               # Smile retries
+        self.assertEqual(Notification.objects.filter(
+            user=self.user, notification_type='verification_approved').count(), 1)
+        self.assertEqual(Attempt.objects.filter(user=self.user).count(), 1)
+
+    def test_body_is_not_trusted(self):
+        # The signature doesn't cover the body: Smile's status endpoint decides.
+        self.callback('block', body={'status': 'clear'})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.verification_status, 'rejected')
+
+    def test_attention_goes_to_review_queue(self):
+        self.callback('attention')
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.verification_status, 'pending')
+        self.assertEqual(Attempt.objects.get(user=self.user).status, 'attention')
+
+    def test_error_lets_user_retry(self):
+        self.callback('error')
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.verification_status, 'not_submitted')
+        with mock.patch.object(smile, 'mint_token', return_value='t'):
+            self.assertEqual(client_for(self.user).post('/api/v1/verification/smile/session/').status_code, 200)
+
+    def test_approved_user_never_downgraded(self):
+        self.callback('clear')
+        Attempt.objects.create(user=self.user, method='smile')
+        with mock.patch.object(smile, 'get_status', return_value=status_of(self.user, 'block')):
+            client_for().post(CALLBACK, {}, format='json', **{**smile_headers(), 'HTTP_SMILEID_JOB_ID': OTHER_JOB})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.verification_status, 'approved')
+
+    def test_unknown_user_acknowledged(self):
+        with mock.patch.object(smile, 'get_status', return_value={
+                'status': 'clear', 'user_id': '00000000-0000-0000-0000-000000000000', 'message': ''}):
+            response = client_for().post(CALLBACK, {}, format='json', **smile_headers())
+        self.assertEqual((response.status_code, response.json()['result']), (200, 'ignored'))
+
+    def test_smile_down_asks_for_retry(self):
+        with mock.patch.object(smile, 'get_status', side_effect=smile.SmileError('down')):
+            response = client_for().post(CALLBACK, {}, format='json', **smile_headers())
+        self.assertEqual(response.status_code, 503)
+
+    def test_status_request_shape(self):
+        ok = mock.Mock(status_code=200, json=lambda: {'status': 'clear', 'user_id': 'u'})
+        with mock.patch.object(smile, 'mint_token', return_value='jwt'), \
+                mock.patch.object(smile.requests, 'get', return_value=ok) as get:
+            self.assertEqual(smile.get_status(JOB)['status'], 'clear')
+        self.assertEqual(get.call_args.args[0], f'https://testapi.smileidentity.com/v3/status/{JOB}')
+        self.assertEqual(get.call_args.kwargs['headers'], {'SmileID-Partner-ID': '2001', 'SmileID-Token': 'jwt'})
+        with self.assertRaises(ValueError):
+            smile.get_status('../../v3/token')
+
+
+@override_settings(**SMILE)
+class CheckJobTests(TestCase):
+
+    def test_user_reports_own_job(self):
+        user = make_user()
+        Attempt.objects.create(user=user, method='smile')
+        with mock.patch.object(smile, 'get_status', return_value=status_of(user, 'processing')):
+            response = client_for(user).post('/api/v1/verification/check/', {'job_id': JOB}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['verification_status'], 'pending')
+        with mock.patch.object(smile, 'get_status', return_value=status_of(user, 'clear')):
+            response = client_for(user).get('/api/v1/verification/check/')
+        self.assertTrue(response.json()['can_create_channel'])
+
+    def test_cannot_claim_someone_elses_job(self):
+        owner, thief = make_user(), make_user()
+        with mock.patch.object(smile, 'get_status', return_value=status_of(owner, 'clear')):
+            response = client_for(thief).post('/api/v1/verification/check/', {'job_id': JOB}, format='json')
+        self.assertEqual(response.status_code, 403)
+        thief.refresh_from_db()
+        self.assertEqual(thief.verification_status, 'not_submitted')
+        self.assertFalse(Attempt.objects.exists())
+
+    def test_invalid_job_id(self):
+        response = client_for(make_user()).post('/api/v1/verification/check/', {'job_id': 'x'}, format='json')
+        self.assertEqual(response.status_code, 400)
+
+
+@override_settings(**NO_SMILE, CLOUDINARY_AUTH_TOKEN_KEY='')
+class ManualReviewTests(TestCase):
+
+    def submit(self, user, **data):
+        uploads = iter([{'public_id': 'abia_stream/verification_docs/doc1'},
+                        {'public_id': 'abia_stream/verification_docs/selfie1'}])
+        with mock.patch('verification.services.cloudinary.uploader.upload',
+                        side_effect=lambda *a, **k: next(uploads)) as upload:
+            response = client_for(user).post('/api/v1/verification/submit/', {
+                'id_document': png(), 'selfie': png('selfie.png'), **data}, format='multipart')
+        return response, upload
+
+    def test_photos_stored_privately_and_queued(self):
+        user = make_user()
+        response, upload = self.submit(user, id_type='NATIONAL_ID')     # legacy name still accepted
+        self.assertEqual(response.status_code, 202, response.content)
+        self.assertEqual(upload.call_count, 2)
+        for call in upload.call_args_list:
+            self.assertEqual(call.kwargs['type'], 'authenticated')
+        user.refresh_from_db()
+        self.assertEqual(user.verification_status, 'pending')
+        attempt = Attempt.objects.get(user=user)
+        self.assertEqual((attempt.status, attempt.id_type), ('pending', 'IDENTITY_CARD'))
+        self.assertIsNone(user.id_document_url)                # no public URL anywhere
+
+        again, _ = self.submit(user)
+        self.assertEqual(again.status_code, 400)
+
+    def test_missing_files_and_bad_type(self):
+        user = make_user()
+        self.assertEqual(client_for(user).post('/api/v1/verification/submit/', {},
+                                               format='multipart').status_code, 400)
+        response, upload = self.submit(user, id_type='LIBRARY_CARD')
+        self.assertEqual(response.status_code, 400)
+        upload.assert_not_called()
+
+    def test_admin_queue_and_decision(self):
+        user = make_user()
+        self.submit(user)
+        admin = make_user(role=User.Role.ADMIN)
+        self.assertEqual(client_for(make_user()).get('/api/v1/verification/review/').status_code, 403)
+
+        queue = client_for(admin).get('/api/v1/verification/review/').json()['results']
+        self.assertEqual(len(queue), 1)
+        item = queue[0]
+        self.assertIn('/image/authenticated/s--', item['document_url'])
+        self.assertIn('/image/authenticated/s--', item['selfie_url'])
+
+        url = f"/api/v1/verification/review/attempts/{item['id']}/"
+        with self.captureOnCommitCallbacks(execute=True):
+            response = client_for(admin).patch(url, {'decision': 'approve', 'note': 'ok'}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        user.refresh_from_db()
+        self.assertEqual(user.verification_status, 'approved')
+        self.assertTrue(Notification.objects.filter(user=user, notification_type='verification_approved').exists())
+        attempt = Attempt.objects.get(pk=item['id'])
+        self.assertEqual((attempt.reviewed_by_id, attempt.review_note), (admin.id, 'ok'))
+
+        self.assertEqual(client_for(admin).patch(url, {'decision': 'reject'}, format='json').status_code, 409)
+        self.assertEqual(client_for(admin).get('/api/v1/verification/review/').json()['results'], [])
+
+    def test_reject_allows_resubmission(self):
+        user = make_user()
+        self.submit(user)
+        admin = make_user(role=User.Role.ADMIN)
+        attempt = Attempt.objects.get(user=user)
+        client_for(admin).patch(f'/api/v1/verification/review/attempts/{attempt.id}/',
+                                {'decision': 'reject'}, format='json')
+        user.refresh_from_db()
+        self.assertEqual(user.verification_status, 'rejected')
+        response, _ = self.submit(user)
+        self.assertEqual(response.status_code, 202)
+
+    def test_legacy_per_user_override(self):
+        user = make_user()
+        admin = make_user(role=User.Role.ADMIN)
+        response = client_for(admin).patch(f'/api/v1/verification/review/{user.id}/',
+                                           {'decision': 'approve'}, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        user.refresh_from_db()
+        self.assertEqual(user.verification_status, 'approved')
+        self.assertEqual(Attempt.objects.get(user=user).reviewed_by_id, admin.id)
+
+    def test_status_shows_latest_attempt(self):
+        user = make_user()
+        self.submit(user)
+        body = client_for(user).get('/api/v1/verification/status/').json()
+        self.assertEqual(body['latest_attempt']['status'], 'pending')
+        self.assertFalse(body['can_create_channel'])

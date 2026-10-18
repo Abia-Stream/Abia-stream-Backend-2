@@ -6,6 +6,18 @@ What changed in the backend, newest first. Endpoint details live in
 
 ---
 
+## 2026-10-18: Identity verification rebuilt; email that reaches everyone
+
+- **ID verification works for the first time.** The old Smile Identity code used an endpoint, signature and job type that don't exist in Smile's API, so it could never have verified anyone (no user is verified in production, so nobody new could create a channel). Now:
+  - **Smile ID v3 Document Verification** via Smile's Web SDK. The backend issues a session token bound to the user (`POST /verification/smile/session/`). Smile's webhook (`/verification/smile/callback/`) is signature-checked, but because Smile's signature doesn't cover the body, the verdict is always fetched from Smile's status API before anything changes. A user can only report their own job (`POST /verification/check/`).
+  - **Manual review** as the fallback: the upload form now stores photos **privately** on Cloudinary (signed links for admins only; before, ID documents would have been public) and queues them for an admin (`GET /verification/review/`, `PATCH /verification/review/attempts/<id>/`).
+  - Every attempt is recorded (`verification_attempts`), and each outcome is applied once: webhook retries don't send duplicate notifications, and an approved user is never downgraded.
+  - Database: `sql/012_verification_attempts.sql`.
+- **Email provider is configurable** (`EMAIL_PROVIDER`): `resend` (needs a verified domain) or `brevo` (can send from a single verified address, no domain needed). Resending a code or a password reset now answers 503 with a clear message instead of a 500 when email fails.
+- **Fix:** server-side video uploads with a rejected file returned 500 instead of the 400 explaining why (the view caught the email library's `ValidationError`).
+
+---
+
 ## 2026-10-14: Production fixes (reported by the frontend)
 
 - **ID verification no longer crashes.** The Smile Identity settings were commented out, so `POST /verification/submit/` returned 500. They are now read from `SMILE_IDENTITY_PARTNER_ID`, `SMILE_IDENTITY_API_KEY` and `SMILE_IDENTITY_ENVIRONMENT` (`sandbox` by default, `production` for real checks). Until the keys are set, the endpoint answers 503 with a clear message instead of uploading the documents.

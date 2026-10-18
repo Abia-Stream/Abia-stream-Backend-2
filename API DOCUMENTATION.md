@@ -2693,3 +2693,26 @@ Ad revenue (from your ad network) is entered per period; after the platform fee,
 
 ### New notification types
 `tip_received`, `new_member`, `membership_payment`, `payout_paid`, `payout_failed`, `ad_share_credited`.
+
+---
+
+## Identity Verification
+
+Approval is required to create a channel. Two paths; `GET /api/v1/verification/config/` says which are available.
+
+| Method | Endpoint | Who | Purpose |
+|---|---|---|---|
+| GET | `/api/v1/verification/config/` | user | `smile_enabled`, Smile Web SDK settings, `manual_id_types` |
+| POST | `/api/v1/verification/smile/session/` | user | 15-minute Smile token for `window.SmileIdentity` (503 if Smile isn't configured) |
+| POST | `/api/v1/verification/check/` | user | `{"job_id": "job_…"}` from Smile's `onResult`; asks Smile for the verdict now (403 if the job isn't yours) |
+| GET | `/api/v1/verification/check/` | user | Re-check the latest Smile job |
+| POST | `/api/v1/verification/submit/` | user | Manual review: multipart `id_document`, `selfie`, `id_type`; `202` → `pending` |
+| GET | `/api/v1/verification/status/` | user | `verification_status`, `verified_at`, `can_create_channel`, `latest_attempt` |
+| POST | `/api/v1/verification/smile/callback/` | Smile ID | Webhook; checks `Response-Signature`, then confirms the verdict with Smile |
+| GET | `/api/v1/verification/review/?status=pending\|attention` | admin | Queue, oldest first, with signed private photo links |
+| PATCH | `/api/v1/verification/review/attempts/<attempt_id>/` | admin | `{"decision": "approve"\|"reject", "note": "…"}`; 409 if already decided |
+| PATCH | `/api/v1/verification/review/<user_id>/` | admin | Older per-user form; decides the attempt in review, or records an override |
+
+Outcomes: Smile `clear` → `approved`; `block` → `rejected`; `attention` → `pending` (admin queue); `error` → back to
+`not_submitted` (the user can retry). Session and manual submissions are limited to 10 per hour per user.
+Notifications: `verification_approved`, `verification_rejected`, `verification_error`.

@@ -7,6 +7,11 @@ from django.utils import timezone
 from accounts.serializers import RegisterSerializer, VerifyEmailSerializer, ResendOTPSerializer, VerifyPasswordResetOTPSerializer,ForgotPasswordSerializer, ResetPasswordSerializer, LoginSerializer, TokenRefreshSerializer  
 from accounts.utils import generate_otp, hash_token, get_otp_expiry
 from accounts.email_service import send_verification_otp, send_password_reset_otp
+import logging
+
+logger = logging.getLogger(__name__)
+
+EMAIL_UNAVAILABLE = ("We couldn't send the email right now. Please try again in a few minutes.")
 from django.conf import settings
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
@@ -97,7 +102,11 @@ class ResendOTPView(APIView):
         user.password_reset_expires = get_otp_expiry()
         user.save()
 
-        send_verification_otp(user.email, otp)
+        try:
+            send_verification_otp(user.email, otp)
+        except Exception:  # noqa: BLE001 - provider outage or rejection
+            logger.exception('Could not send verification code')
+            return Response({'detail': EMAIL_UNAVAILABLE}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         return Response({'detail': 'If that email exists, a new OTP has been sent.'})
     
@@ -122,7 +131,11 @@ class ForgotPasswordView(APIView):
         user.password_reset_expires = get_otp_expiry()
         user.save()
 
-        send_password_reset_otp(user.email, otp)
+        try:
+            send_password_reset_otp(user.email, otp)
+        except Exception:  # noqa: BLE001 - provider outage or rejection
+            logger.exception('Could not send password reset code')
+            return Response({'detail': EMAIL_UNAVAILABLE}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         return Response({'detail': 'If that email exists, a reset code has been sent.'})
 
