@@ -4,7 +4,11 @@ Transactional email (verification and password-reset codes).
 The provider is chosen by settings.EMAIL_PROVIDER:
   resend - Resend API. Needs a domain verified in Resend; the default sender
            onboarding@resend.dev can only deliver to the Resend account owner.
-  brevo  - Brevo API. Can send from a single verified address, no domain needed.
+  brevo  - Brevo API. Needs a verified domain too.
+  apps_script - a Google Apps Script web app (scripts/send_email.gs) that
+           sends from the owner's Gmail. No domain needed; works over HTTPS,
+           so Render's free-plan SMTP block doesn't matter. Gmail allows
+           about 100 recipients a day from a personal account.
 Failures raise EmailDeliveryError so callers can tell the user.
 """
 import logging
@@ -55,7 +59,30 @@ def _send_brevo(to, subject, html):
         raise EmailDeliveryError(f'Brevo returned {response.status_code}: {response.text[:300]}')
 
 
-PROVIDERS = {'resend': _send_resend, 'brevo': _send_brevo}
+def _send_apps_script(to, subject, html):
+    if not (settings.APPS_SCRIPT_EMAIL_URL and settings.APPS_SCRIPT_EMAIL_SECRET):
+        raise EmailDeliveryError('APPS_SCRIPT_EMAIL_URL / APPS_SCRIPT_EMAIL_SECRET are not set')
+    try:
+        # Apps Script answers with a redirect to the script's output; requests
+        # follows it. The email is sent before the redirect.
+        response = requests.post(
+            settings.APPS_SCRIPT_EMAIL_URL,
+            json={'secret': settings.APPS_SCRIPT_EMAIL_SECRET, 'to': to, 'subject': subject,
+                  'html': html, 'name': settings.EMAIL_FROM_NAME},
+            timeout=TIMEOUT,
+        )
+    except requests.RequestException as exc:
+        raise EmailDeliveryError(f'Apps Script: {exc}') from exc
+    try:
+        result = response.json()
+    except ValueError:
+        result = {}
+    if response.status_code != 200 or not result.get('ok'):
+        raise EmailDeliveryError(f'Apps Script returned {response.status_code}: '
+                                 f'{result.get("error") or response.text[:200]}')
+
+
+PROVIDERS = {'resend': _send_resend, 'brevo': _send_brevo, 'apps_script': _send_apps_script}
 
 
 def send_email(to, subject, html):
