@@ -15,6 +15,7 @@ from rest_framework.views import APIView
 
 from accounts.models import User
 from moderation.permissions import IsAdmin
+from verification import review as review_rules
 from verification import services
 from verification import smile_service as smile
 from verification.models import VerificationAttempt as Attempt
@@ -40,8 +41,12 @@ def _latest_attempt(user):
     attempt = user.verification_attempts.order_by('-created_at').first()
     if attempt is None:
         return None
+    message = attempt.result_message
+    if attempt.status == Attempt.Status.REJECTED and attempt.rejection_reason:
+        message = review_rules.creator_message(attempt.rejection_reason, attempt.review_note)
     return {'id': str(attempt.id), 'method': attempt.method, 'status': attempt.status,
-            'message': attempt.result_message, 'created_at': attempt.created_at}
+            'rejection_reason': attempt.rejection_reason, 'message': message,
+            'created_at': attempt.created_at}
 
 
 class VerificationConfigView(APIView):
@@ -245,6 +250,9 @@ def _attempt_for_admin(attempt):
         'created_at': attempt.created_at,
         'reviewed_at': attempt.reviewed_at,
         'review_note': attempt.review_note,
+        'rejection_reason': attempt.rejection_reason,
+        'checklist': attempt.checklist,
+        'documents_purged': attempt.documents_purged_at is not None,
         'user': {'id': str(user.id), 'email': user.email, 'full_name': _full_name(user),
                  'verification_status': user.verification_status},
     }
@@ -253,7 +261,8 @@ def _attempt_for_admin(attempt):
 class ReviewQueueView(APIView):
     """
     GET /api/v1/verification/review/?status=pending|attention
-    Attempts awaiting an admin decision, oldest first.
+    Attempts awaiting an admin decision, oldest first, plus the checklist and
+    rejection reasons to show next to each one.
     """
     permission_classes = [IsAdmin]
 
@@ -263,20 +272,24 @@ class ReviewQueueView(APIView):
             statuses = (request.query_params['status'],)
         attempts = (Attempt.objects.filter(status__in=statuses)
                     .select_related('user', 'user__profile').order_by('created_at')[:100])
-        return Response({'results': [_attempt_for_admin(a) for a in attempts]})
+        return Response({'results': [_attempt_for_admin(a) for a in attempts],
+                         **review_rules.options()})
 
 
 class ReviewAttemptView(APIView):
     """
     PATCH /api/v1/verification/review/attempts/<attempt_id>/
-    {"decision": "approve" | "reject", "note": "optional"}
+    Approve: {"decision": "approve", "checklist": {"name_matches": true, ...every item}}
+    Reject:  {"decision": "reject", "reason": "face_mismatch", "note": "optional"}
+             (reason "other" needs a note; the creator sees the reason's message)
     """
     permission_classes = [IsAdmin]
 
     def patch(self, request, attempt_id):
         try:
             attempt = services.review(attempt_id, request.user, request.data.get('decision'),
-                                      request.data.get('note'))
+                                      request.data.get('note'), reason=request.data.get('reason'),
+                                      checklist=request.data.get('checklist'))
         except services.VerificationError as exc:
             return _error(exc)
         return Response(_attempt_for_admin(attempt))
@@ -286,7 +299,8 @@ class AdminReviewVerificationView(APIView):
     """
     PATCH /api/v1/verification/review/<user_id>/   {"decision": "approve" | "reject"}
     Older per-user endpoint: decides the user's attempt in review, or records
-    a manual override if they have none.
+    a manual override if they have none. No checklist is required here, and a
+    rejection without a reason is recorded as "other".
     """
     permission_classes = [IsAdmin]
 
@@ -304,7 +318,10 @@ class AdminReviewVerificationView(APIView):
                                              status=Attempt.Status.PENDING,
                                              review_note='Admin override without submitted documents')
         try:
-            services.review(attempt.id, request.user, decision, request.data.get('note'))
+            services.review(attempt.id, request.user, decision,
+                            request.data.get('note') or 'Decided by an admin.',
+                            reason=request.data.get('reason') or 'other',
+                            checklist=request.data.get('checklist'), require_checklist=False)
         except services.VerificationError as exc:
             return _error(exc)
         verb = 'approved' if decision == 'approve' else 'rejected'
