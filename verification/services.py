@@ -6,6 +6,7 @@ an approved user.
 """
 import logging
 import uuid
+from datetime import timedelta
 
 import cloudinary.uploader
 import cloudinary.utils
@@ -14,6 +15,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import User
+from verification import review as review_rules
 from verification import smile_service as smile
 from verification.models import VerificationAttempt as Attempt
 
@@ -58,7 +60,7 @@ def can_start(user):
 # ── Outcomes ──────────────────────────────────────────────────────────────────
 
 def record_outcome(attempt_id, outcome, message=None, *, result_status=None,
-                   reviewer=None, note=None):
+                   reviewer=None, note=None, rejection_reason=None, checklist=None):
     """
     Apply an outcome (an Attempt.Status) to an attempt and its user.
     Returns True if anything changed. Final attempts are never changed again,
@@ -79,6 +81,8 @@ def record_outcome(attempt_id, outcome, message=None, *, result_status=None,
             attempt.reviewed_by = reviewer
             attempt.reviewed_at = now
             attempt.review_note = note
+            attempt.rejection_reason = rejection_reason
+            attempt.checklist = checklist
         attempt.save()
 
         already_approved = user.verification_status == User.VerificationStatus.APPROVED
@@ -104,14 +108,33 @@ def record_outcome(attempt_id, outcome, message=None, *, result_status=None,
 
         if outcome in NOTIFICATIONS and not (already_approved and outcome != Attempt.Status.APPROVED):
             notification_type, title, text = NOTIFICATIONS[outcome]
-            transaction.on_commit(lambda: _notify(user, notification_type, title, text))
+            data = {}
+            if outcome == Attempt.Status.REJECTED and rejection_reason:
+                text = review_rules.creator_message(rejection_reason, note)
+                data = {'reason': rejection_reason}
+            transaction.on_commit(lambda: _notify(user, notification_type, title, text, data))
+        if outcome in Attempt.IN_REVIEW and not already_approved:
+            transaction.on_commit(lambda: _notify_admins(attempt, user))
         return True
 
 
-def _notify(user, notification_type, title, text):
+def _notify(user, notification_type, title, text, data=None):
     from notifications.utils import create_notification
     create_notification(user=user, notification_type=notification_type,
-                        title=title, message=text, data={})
+                        title=title, message=text, data=data or {})
+
+
+def _notify_admins(attempt, user):
+    """Tell every active admin that an attempt is waiting in the review queue."""
+    profile = getattr(user, 'profile', None)
+    who = (profile.full_name if profile and profile.full_name else None) or user.email
+    if attempt.status == Attempt.Status.ATTENTION:
+        text = f"Smile ID flagged {who}'s verification for a manual decision."
+    else:
+        text = f'{who} submitted ID verification for review.'
+    for admin in User.objects.filter(role=User.Role.ADMIN, status=User.Status.ACTIVE):
+        _notify(admin, 'verification_submitted', 'ID verification to review', text,
+                {'attempt_id': str(attempt.id), 'user_id': str(user.id)})
 
 
 # ── Smile ID ──────────────────────────────────────────────────────────────────
@@ -220,16 +243,85 @@ def signed_image_url(public_id):
     return url
 
 
-def review(attempt_id, reviewer, decision, note=None):
-    """Admin decision on an attempt in the queue."""
+def review(attempt_id, reviewer, decision, note=None, *, reason=None, checklist=None,
+           require_checklist=True):
+    """
+    Admin decision on an attempt in the queue.
+    Approving needs every checklist item ticked (verification/review.py).
+    Rejecting needs a reason from the fixed list; 'other' also needs a note.
+    """
     outcome = {'approve': Attempt.Status.APPROVED, 'reject': Attempt.Status.REJECTED}.get(decision)
     if outcome is None:
         raise VerificationError('decision must be approve or reject.')
+    note = (note or '').strip() or None
+
+    if outcome == Attempt.Status.APPROVED:
+        checklist = _clean_checklist(checklist)
+        missing = [key for key in review_rules.CHECKLIST_KEYS if not checklist.get(key)]
+        if require_checklist and missing:
+            raise VerificationError('Tick every checklist item to approve. Not ticked: '
+                                    + ', '.join(missing) + '.')
+        reason = None
+    else:
+        if reason not in review_rules.REJECTION_REASONS:
+            raise VerificationError('reason is required to reject. Choose from: '
+                                    + ', '.join(review_rules.REJECTION_REASONS) + '.')
+        if reason == 'other' and not note:
+            raise VerificationError('Add a note explaining the rejection.')
+        checklist = _clean_checklist(checklist)
+
     attempt = Attempt.objects.filter(pk=attempt_id).first()
     if attempt is None:
         raise VerificationError('Verification attempt not found.', 404)
     if attempt.status not in Attempt.IN_REVIEW:
         raise VerificationError('This attempt is not awaiting review.', 409)
-    record_outcome(attempt.id, outcome, reviewer=reviewer, note=note)
+    record_outcome(attempt.id, outcome, reviewer=reviewer, note=note,
+                   rejection_reason=reason, checklist=checklist or None)
     attempt.refresh_from_db()
     return attempt
+
+
+def _clean_checklist(checklist):
+    if not isinstance(checklist, dict):
+        return {}
+    return {key: checklist[key] is True for key in review_rules.CHECKLIST_KEYS if key in checklist}
+
+
+# ── Retention ─────────────────────────────────────────────────────────────────
+
+def purge_documents(retention_days=None, dry_run=False, limit=500):
+    """
+    Delete the private ID photos of attempts decided more than retention_days
+    ago. The attempt row (who was verified, by whom, when, why) is kept.
+    Attempts still awaiting review are never touched.
+    Returns counts: due, purged, failed.
+    """
+    days = settings.VERIFICATION_DOCUMENT_RETENTION_DAYS if retention_days is None else retention_days
+    cutoff = timezone.now() - timedelta(days=days)
+    due = list(Attempt.objects
+               .filter(status__in=Attempt.FINAL, updated_at__lt=cutoff, documents_purged_at__isnull=True)
+               .exclude(document_public_id__isnull=True, selfie_public_id__isnull=True)
+               .order_by('updated_at')[:limit])
+    counts = {'due': len(due), 'purged': 0, 'failed': 0}
+    if dry_run:
+        return counts
+    for attempt in due:
+        try:
+            for public_id in (attempt.document_public_id, attempt.selfie_public_id):
+                if public_id:
+                    _destroy_private(public_id)
+        except Exception:  # noqa: BLE001 - keep going; retried on the next run
+            logger.exception('Could not delete verification photos for attempt %s', attempt.id)
+            counts['failed'] += 1
+            continue
+        Attempt.objects.filter(pk=attempt.pk).update(
+            document_public_id=None, selfie_public_id=None, documents_purged_at=timezone.now())
+        counts['purged'] += 1
+    return counts
+
+
+def _destroy_private(public_id):
+    result = cloudinary.uploader.destroy(public_id, resource_type='image', type='authenticated',
+                                         invalidate=True)
+    if result.get('result') not in ('ok', 'not found'):
+        raise RuntimeError(f'Cloudinary destroy returned {result!r}')

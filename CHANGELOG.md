@@ -6,6 +6,16 @@ What changed in the backend, newest first. Endpoint details live in
 
 ---
 
+## 2026-10-24: Manual ID review tools
+
+- **Review checklist:** approving needs every item ticked (name matches, face matches, selfie shows the person holding the ID, not expired, readable, not edited). The answers are stored with the decision.
+- **Rejection reasons** from a fixed list. The creator's notification and `latest_attempt.message` say exactly what to fix; `other` needs a note, which the creator sees.
+- **Admins are notified** (`verification_submitted`) when a submission arrives or Smile flags one for review.
+- **ID photos are deleted 30 days after the decision** (`VERIFICATION_DOCUMENT_RETENTION_DAYS`) by a daily job, or with `manage.py purge_verification_documents --apply`. The record of who was verified, by whom and when is kept. Attempts awaiting review are never touched.
+- Database: `sql/013_verification_review.sql`.
+
+---
+
 ## 2026-10-18: Identity verification rebuilt; email without a domain
 
 - **ID verification works for the first time.** The old Smile Identity code used an endpoint, signature and job type that don't exist in Smile's API, so it could never have verified anyone (no user is verified in production, so nobody new could create a channel). Now:

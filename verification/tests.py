@@ -10,6 +10,7 @@ from django.test import TestCase, override_settings
 from abiastream.testing import client_for, make_user
 from accounts.models import User
 from notifications.models import Notification
+from verification import review as review_rules
 from verification import smile_service as smile
 from verification.models import VerificationAttempt as Attempt
 
@@ -19,6 +20,7 @@ NO_SMILE = dict(SMILE_IDENTITY_PARTNER_ID='', SMILE_IDENTITY_API_KEY='')
 JOB = 'job_01m326p53pe1ztjdxh2d9jn9ck'
 OTHER_JOB = 'job_01m326p53pe1ztjdxh2d9jn9cm'
 CALLBACK = '/api/v1/verification/smile/callback/'
+ALL_TICKED = {key: True for key in review_rules.CHECKLIST_KEYS}
 
 
 def png(name='id.png'):
@@ -256,7 +258,8 @@ class ManualReviewTests(TestCase):
 
         url = f"/api/v1/verification/review/attempts/{item['id']}/"
         with self.captureOnCommitCallbacks(execute=True):
-            response = client_for(admin).patch(url, {'decision': 'approve', 'note': 'ok'}, format='json')
+            response = client_for(admin).patch(url, {'decision': 'approve', 'note': 'ok',
+                                                      'checklist': ALL_TICKED}, format='json')
         self.assertEqual(response.status_code, 200, response.content)
         user.refresh_from_db()
         self.assertEqual(user.verification_status, 'approved')
@@ -264,7 +267,8 @@ class ManualReviewTests(TestCase):
         attempt = Attempt.objects.get(pk=item['id'])
         self.assertEqual((attempt.reviewed_by_id, attempt.review_note), (admin.id, 'ok'))
 
-        self.assertEqual(client_for(admin).patch(url, {'decision': 'reject'}, format='json').status_code, 409)
+        self.assertEqual(client_for(admin).patch(url, {'decision': 'reject', 'reason': 'id_expired'},
+                                                  format='json').status_code, 409)
         self.assertEqual(client_for(admin).get('/api/v1/verification/review/').json()['results'], [])
 
     def test_reject_allows_resubmission(self):
@@ -273,7 +277,7 @@ class ManualReviewTests(TestCase):
         admin = make_user(role=User.Role.ADMIN)
         attempt = Attempt.objects.get(user=user)
         client_for(admin).patch(f'/api/v1/verification/review/attempts/{attempt.id}/',
-                                {'decision': 'reject'}, format='json')
+                                {'decision': 'reject', 'reason': 'face_mismatch'}, format='json')
         user.refresh_from_db()
         self.assertEqual(user.verification_status, 'rejected')
         response, _ = self.submit(user)
@@ -295,3 +299,114 @@ class ManualReviewTests(TestCase):
         body = client_for(user).get('/api/v1/verification/status/').json()
         self.assertEqual(body['latest_attempt']['status'], 'pending')
         self.assertFalse(body['can_create_channel'])
+
+
+@override_settings(**NO_SMILE, CLOUDINARY_AUTH_TOKEN_KEY='')
+class ReviewToolsTests(TestCase):
+    """Checklist, rejection reasons, admin alerts and photo retention."""
+
+    def setUp(self):
+        self.admin = make_user(role=User.Role.ADMIN)
+        self.user = make_user()
+        uploads = iter([{'public_id': 'abia_stream/verification_docs/d'},
+                        {'public_id': 'abia_stream/verification_docs/s'}])
+        with mock.patch('verification.services.cloudinary.uploader.upload',
+                        side_effect=lambda *a, **k: next(uploads)), \
+                self.captureOnCommitCallbacks(execute=True):
+            client_for(self.user).post('/api/v1/verification/submit/', {
+                'id_document': png(), 'selfie': png('selfie.png')}, format='multipart')
+        self.attempt = Attempt.objects.get(user=self.user)
+        self.url = f'/api/v1/verification/review/attempts/{self.attempt.id}/'
+
+    def decide(self, body):
+        with self.captureOnCommitCallbacks(execute=True):
+            return client_for(self.admin).patch(self.url, body, format='json')
+
+    def test_admins_alerted_on_submission(self):
+        alert = Notification.objects.get(user=self.admin, notification_type='verification_submitted')
+        self.assertEqual(alert.data['attempt_id'], str(self.attempt.id))
+        self.assertFalse(Notification.objects.filter(user=self.user,
+                                                     notification_type='verification_submitted').exists())
+
+    def test_queue_includes_checklist_and_reasons(self):
+        body = client_for(self.admin).get('/api/v1/verification/review/').json()
+        self.assertEqual([c['key'] for c in body['checklist']], review_rules.CHECKLIST_KEYS)
+        self.assertIn('face_mismatch', [r['key'] for r in body['rejection_reasons']])
+
+    def test_approve_requires_every_item(self):
+        partial = {**ALL_TICKED, 'holding_id': False}
+        response = self.decide({'decision': 'approve', 'checklist': partial})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('holding_id', response.json()['detail'])
+        self.assertEqual(self.decide({'decision': 'approve'}).status_code, 400)
+        self.assertEqual(self.decide({'decision': 'approve',
+                                      'checklist': {k: 'yes' for k in ALL_TICKED}}).status_code, 400)
+        response = self.decide({'decision': 'approve', 'checklist': ALL_TICKED})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['checklist'], ALL_TICKED)
+
+    def test_reject_requires_known_reason(self):
+        self.assertEqual(self.decide({'decision': 'reject'}).status_code, 400)
+        self.assertEqual(self.decide({'decision': 'reject', 'reason': 'vibes'}).status_code, 400)
+        self.assertEqual(self.decide({'decision': 'reject', 'reason': 'other'}).status_code, 400)
+
+    def test_creator_told_why(self):
+        response = self.decide({'decision': 'reject', 'reason': 'not_holding_id'})
+        self.assertEqual(response.status_code, 200, response.content)
+        notice = Notification.objects.get(user=self.user, notification_type='verification_rejected')
+        self.assertIn('holding the same ID', notice.message)
+        self.assertEqual(notice.data, {'reason': 'not_holding_id'})
+        latest = client_for(self.user).get('/api/v1/verification/status/').json()['latest_attempt']
+        self.assertEqual(latest['rejection_reason'], 'not_holding_id')
+        self.assertIn('holding the same ID', latest['message'])
+
+    def test_other_reason_uses_note(self):
+        self.decide({'decision': 'reject', 'reason': 'other', 'note': 'Please use your own ID.'})
+        notice = Notification.objects.get(user=self.user, notification_type='verification_rejected')
+        self.assertIn('Please use your own ID.', notice.message)
+
+    def test_photos_deleted_after_retention_only_once_decided(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from verification.services import purge_documents
+        old = timezone.now() - timedelta(days=40)
+
+        # Still awaiting review: never deleted, however old.
+        Attempt.objects.filter(pk=self.attempt.pk).update(updated_at=old)
+        with mock.patch('verification.services.cloudinary.uploader.destroy') as destroy:
+            self.assertEqual(purge_documents()['due'], 0)
+        destroy.assert_not_called()
+
+        self.decide({'decision': 'approve', 'checklist': ALL_TICKED})
+        with mock.patch('verification.services.cloudinary.uploader.destroy') as destroy:
+            self.assertEqual(purge_documents()['due'], 0)          # decided just now
+        destroy.assert_not_called()
+
+        Attempt.objects.filter(pk=self.attempt.pk).update(updated_at=old)
+        self.assertEqual(purge_documents(dry_run=True), {'due': 1, 'purged': 0, 'failed': 0})
+        with mock.patch('verification.services.cloudinary.uploader.destroy',
+                        return_value={'result': 'ok'}) as destroy:
+            self.assertEqual(purge_documents(), {'due': 1, 'purged': 1, 'failed': 0})
+        self.assertEqual(destroy.call_count, 2)
+        self.assertEqual(destroy.call_args.kwargs['type'], 'authenticated')
+        self.attempt.refresh_from_db()
+        self.assertIsNone(self.attempt.document_public_id)
+        self.assertIsNotNone(self.attempt.documents_purged_at)
+        self.assertEqual(self.attempt.status, 'approved')           # the record stays
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.verification_status, 'approved')
+
+    def test_failed_delete_is_retried_later(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from verification.services import purge_documents
+        self.decide({'decision': 'reject', 'reason': 'unreadable'})
+        Attempt.objects.filter(pk=self.attempt.pk).update(updated_at=timezone.now() - timedelta(days=40))
+        with mock.patch('verification.services.cloudinary.uploader.destroy',
+                        return_value={'result': 'error'}):
+            self.assertEqual(purge_documents()['failed'], 1)
+        self.attempt.refresh_from_db()
+        self.assertIsNotNone(self.attempt.document_public_id)
+        with mock.patch('verification.services.cloudinary.uploader.destroy',
+                        return_value={'result': 'not found'}):
+            self.assertEqual(purge_documents()['purged'], 1)

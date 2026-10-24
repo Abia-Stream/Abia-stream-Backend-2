@@ -314,14 +314,25 @@ Results: `approved` (can create a channel), `pending` (still processing, or Smil
 with `id_document`, `selfie` and `id_type`, using one of `manual_id_types`. The old `NATIONAL_ID` and
 `VOTERS_ID` names still work. The photos are stored privately, the response is `202` with `pending`, and an
 admin decides. Use this when `smile_enabled` is false, or as a "Can't use your camera?" option.
+**Tell creators the selfie must show them holding the same ID next to their face.** Reviewers reject selfies
+without it (reason `not_holding_id`).
 
-`GET /verification/status/` now also returns `latest_attempt` (`method`, `status`, `message`). New notification:
-`verification_error`.
+`GET /verification/status/` now also returns `latest_attempt` (`method`, `status`, `rejection_reason`,
+`message`). When `status` is `rejected`, show `message`: it tells the creator exactly what to fix (for example
+"Your selfie must show you holding the same ID next to your face"), then offer "Try again". New notifications:
+`verification_error`, plus `verification_submitted` for admins (`data.attempt_id`); link it to the review
+screen.
 
 **Admin › Verification** (role `admin`): `GET /verification/review/` lists attempts awaiting a decision, oldest
 first, with private photo links (`document_url`, `selfie_url`; for Smile attempts, see the photos in the Smile
-portal). Decide with `PATCH /verification/review/attempts/<attempt_id>/` and
-`{"decision": "approve" | "reject", "note": "…"}`.
+portal). The same response carries `checklist` and `rejection_reasons` (each `{key, label}`):
+- Show the checklist next to the photos. **Approve only works once every item is ticked:**
+  `{"decision": "approve", "checklist": {"name_matches": true, "face_matches": true, …}}`. Otherwise you get a
+  `400` naming what's unticked.
+- Rejecting needs a reason picked from `rejection_reasons`: `{"decision": "reject", "reason": "face_mismatch",
+  "note": "optional"}`. The reason `other` needs a note, which the creator sees.
+- Photos are deleted automatically 30 days after the decision (`documents_purged: true`, photo links `null`).
+  The decision itself is kept.
 
 ---
 

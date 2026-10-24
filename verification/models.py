@@ -1,4 +1,4 @@
-"""Identity verification attempts (sql/012_verification_attempts.sql)."""
+"""Identity verification attempts (sql/012_verification_attempts.sql, sql/013_verification_review.sql)."""
 import uuid
 
 from django.conf import settings
@@ -37,6 +37,9 @@ class VerificationAttempt(models.Model):
                                     null=True, blank=True, db_column='reviewed_by', related_name='+')
     reviewed_at = models.DateTimeField(null=True, blank=True)
     review_note = models.TextField(null=True, blank=True)
+    rejection_reason = models.TextField(null=True, blank=True)    # verification/review.py
+    checklist = models.JSONField(null=True, blank=True)
+    documents_purged_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(default=timezone.now)
 

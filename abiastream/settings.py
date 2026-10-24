@@ -391,7 +391,17 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'livestreams.tasks.sync_livestreams',
         'schedule': 60.0,
     },
+    # Delete ID photos once they're no longer needed (see below).
+    'purge-verification-documents': {
+        'task': 'verification.tasks.purge_verification_documents',
+        'schedule': crontab(hour=2, minute=15),
+    },
 }
+
+# Private ID photos from manual verification are deleted this many days after
+# the decision (data minimisation, Nigeria Data Protection Act 2023). The
+# record of who was verified, by whom and when is kept.
+VERIFICATION_DOCUMENT_RETENTION_DAYS = config('VERIFICATION_DOCUMENT_RETENTION_DAYS', default=30, cast=int)
 
 # Alternative — no extra table created
 REST_AUTH = {
