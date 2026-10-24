@@ -431,8 +431,12 @@ LOGGING = {
 # Transactional email (OTP codes) goes through an HTTP API, not SMTP.
 #   resend - needs a verified domain; onboarding@resend.dev only delivers to
 #            the Resend account owner.
-#   brevo  - can send from a single verified address (no domain needed).
+#   brevo  - needs a verified domain too.
+#   apps_script - Google Apps Script web app sending from a Gmail account
+#            (scripts/send_email.gs); no domain needed.
 EMAIL_PROVIDER = config('EMAIL_PROVIDER', default='resend')
+APPS_SCRIPT_EMAIL_URL = config('APPS_SCRIPT_EMAIL_URL', default='')
+APPS_SCRIPT_EMAIL_SECRET = config('APPS_SCRIPT_EMAIL_SECRET', default='')
 RESEND_API_KEY = config('RESEND_API_KEY', default='')
 BREVO_API_KEY = config('BREVO_API_KEY', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='onboarding@resend.dev')

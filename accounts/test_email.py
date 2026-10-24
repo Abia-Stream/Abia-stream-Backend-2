@@ -32,6 +32,36 @@ class BrevoTests(TestCase):
                 email_service.send_password_reset_otp('ada@example.com', '1')
 
 
+@override_settings(EMAIL_PROVIDER='apps_script', APPS_SCRIPT_EMAIL_URL='https://script.google.com/macros/s/X/exec',
+                   APPS_SCRIPT_EMAIL_SECRET='s3cret', EMAIL_FROM_NAME='Abia Stream')
+class AppsScriptTests(TestCase):
+
+    def test_request_shape(self):
+        ok = mock.Mock(status_code=200, json=lambda: {'ok': True, 'remaining': 99})
+        with mock.patch.object(email_service.requests, 'post', return_value=ok) as post:
+            email_service.send_verification_otp('ada@example.com', '654321')
+        args, kwargs = post.call_args
+        self.assertEqual(args[0], 'https://script.google.com/macros/s/X/exec')
+        body = kwargs['json']
+        self.assertEqual((body['secret'], body['to'], body['name']), ('s3cret', 'ada@example.com', 'Abia Stream'))
+        self.assertIn('654321', body['html'])
+
+    def test_script_refusal_raises(self):
+        for answer in ({'ok': False, 'error': 'daily Gmail quota used up'}, ValueError):
+            response = mock.Mock(status_code=200, text='<html>sign in</html>')
+            response.json = mock.Mock(side_effect=answer) if answer is ValueError else (lambda a=answer: a)
+            with mock.patch.object(email_service.requests, 'post', return_value=response):
+                with self.assertRaises(email_service.EmailDeliveryError):
+                    email_service.send_email('a@example.com', 's', 'h')
+
+    @override_settings(APPS_SCRIPT_EMAIL_URL='')
+    def test_not_configured(self):
+        with mock.patch.object(email_service.requests, 'post') as post:
+            with self.assertRaises(email_service.EmailDeliveryError):
+                email_service.send_email('a@example.com', 's', 'h')
+        post.assert_not_called()
+
+
 class ProviderSelectionTests(TestCase):
 
     @override_settings(EMAIL_PROVIDER='resend', RESEND_API_KEY='re_test')
