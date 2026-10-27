@@ -6,6 +6,12 @@ What changed in the backend, newest first. Endpoint details live in
 
 ---
 
+## 2026-10-27: Role on your own profile
+
+- `GET /profile/me/` (and the `PATCH` response) now include `role` (`viewer` | `creator` | `moderator` | `admin`), read fresh on each call so a promotion shows up without logging in again. Public profiles don't include it.
+
+---
+
 ## 2026-10-24: Manual ID review tools
 
 - **Review checklist:** approving needs every item ticked (name matches, face matches, selfie shows the person holding the ID, not expired, readable, not edited). The answers are stored with the decision.

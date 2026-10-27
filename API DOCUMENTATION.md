@@ -482,9 +482,14 @@ Authorization: Bearer <access_token>
   "total_views": 0,
   "total_subscribers": 0,
   "created_at": "2026-06-08T07:00:00Z",
-  "updated_at": "2026-06-08T07:00:00Z"
+  "updated_at": "2026-06-08T07:00:00Z",
+  "role": "viewer"
 }
 ```
+
+`role` is one of `viewer`, `creator`, `moderator`, `admin`. It's read fresh on every call (an admin may have
+changed it since login), and it appears only on your own profile, not on public profiles. Use it to decide what
+to show (for example the admin dashboard); the API enforces permissions on its own.
 
 ---
 

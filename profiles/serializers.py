@@ -17,6 +17,20 @@ class ProfileSerializer(serializers.ModelSerializer):
         ]
 
 
+class MyProfileSerializer(ProfileSerializer):
+    """
+    The signed-in user's own profile (/profile/me/), plus their role:
+    viewer | creator | moderator | admin. Read fresh on every request, since an
+    admin can change it after login. Public profiles don't include it, so
+    staff accounts aren't advertised. The API enforces permissions itself;
+    the frontend uses this only to decide what to show.
+    """
+    role = serializers.CharField(source='user.role', read_only=True)
+
+    class Meta(ProfileSerializer.Meta):
+        fields = ProfileSerializer.Meta.fields + ['role']
+
+
 class ProfileUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
