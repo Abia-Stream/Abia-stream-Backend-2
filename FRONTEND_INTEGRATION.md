@@ -276,6 +276,7 @@ Amounts are **kobo** (₦500 = `50000`). Full details: API DOCUMENTATION.md, Mon
 
 ## 15. Small things
 
+- **Who is an admin:** `GET /profile/me/` now includes `role` (`viewer` | `creator` | `moderator` | `admin`). Show the admin dashboard when it's `admin`, and moderator tools for `moderator` or `admin`. Re-read it on app start rather than trusting the role saved at login, because it can change.
 - **Videos carry their channel:** every video object now has `channel_slug` and `channel_name` (null if the creator has no channel). Link to `/channels/<channel_slug>/` from video cards.
 - **Sign-up errors:** `POST /auth/register/` needs `email`, `password` (8+ chars) and `full_name`. Show the field messages from a `400`: an email that is registered but unverified tells the user to use "Resend code" (`POST /auth/resend-otp/`), and a verified one tells them to log in. A `503` means the verification email couldn't be sent and **no account was created**, so show `detail` and let them retry.
 - Creator dashboard: `new_subscribers_last_28_days` now has real numbers.
