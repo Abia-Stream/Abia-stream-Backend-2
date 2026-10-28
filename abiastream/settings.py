@@ -483,7 +483,9 @@ CLOUDINARY_WEBHOOK_VERIFY = config('CLOUDINARY_WEBHOOK_VERIFY', default='log')
 # Cloudinary Live Streaming (livestreams/). Idle timeout: how long a dropped
 # encoder can reconnect before the stream counts as ended.
 LIVESTREAM_IDLE_TIMEOUT_SECONDS = config('LIVESTREAM_IDLE_TIMEOUT_SECONDS', default=120, cast=int)
-LIVESTREAM_MAX_RUNTIME_SECONDS = config('LIVESTREAM_MAX_RUNTIME_SECONDS', default=4 * 3600, cast=int)
+# Cloudinary's limit for recorded streams is 3 hours; larger values are capped
+# (livestreams/cloudinary_live.py).
+LIVESTREAM_MAX_RUNTIME_SECONDS = config('LIVESTREAM_MAX_RUNTIME_SECONDS', default=3 * 3600, cast=int)
 
 # Automatic moderation (moderation/auto.py, text_checks.py). Comma-separated
 # words/phrases; matches in comments and video text go to the moderation

@@ -6,6 +6,12 @@ What changed in the backend, newest first. Endpoint details live in
 
 ---
 
+## 2026-10-28: Fix: going live failed for everyone
+
+- Creating a stream always answered "Live streaming is temporarily unavailable". The backend asked Cloudinary for a 4-hour maximum, and Cloudinary refuses more than 3 hours for streams that are recorded. The default is now 3 hours, and the request is capped at Cloudinary's limit even if `LIVESTREAM_MAX_RUNTIME_SECONDS` is set higher.
+
+---
+
 ## 2026-10-24: Manual ID review tools
 
 - **Review checklist:** approving needs every item ticked (name matches, face matches, selfie shows the person holding the ID, not expired, readable, not edited). The answers are stored with the decision.
