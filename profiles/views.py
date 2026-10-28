@@ -6,7 +6,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
 
 from profiles.models import Profile
-from profiles.serializers import ProfileSerializer, ProfileUpdateSerializer
+from profiles.serializers import MyProfileSerializer, ProfileSerializer, ProfileUpdateSerializer
 from videos.file_security import validate_image_file
 from videos.cloudinary_service import (
     upload_image_to_cloudinary,
@@ -19,8 +19,8 @@ class MyProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        profile = get_object_or_404(Profile, user_id=request.user.id)
-        serializer = ProfileSerializer(profile)
+        profile = get_object_or_404(Profile.objects.select_related('user'), user_id=request.user.id)
+        serializer = MyProfileSerializer(profile)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def patch(self, request):
@@ -30,7 +30,7 @@ class MyProfileView(APIView):
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(ProfileSerializer(profile).data, status=status.HTTP_200_OK)
+        return Response(MyProfileSerializer(profile).data, status=status.HTTP_200_OK)
 
 
 class PublicProfileView(APIView):
