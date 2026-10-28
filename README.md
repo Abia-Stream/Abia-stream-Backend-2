@@ -193,7 +193,7 @@ Server runs at `http://127.0.0.1:8000`
 | `SIGNED_URL_TTL_SECONDS` | Lifetime of expiring signed URLs (default 3600) | ❌ |
 | `CLOUDINARY_WEBHOOK_VERIFY` | `off`, `log` (default) or `enforce` — Cloudinary webhook signature check | ❌ |
 | `LIVESTREAM_IDLE_TIMEOUT_SECONDS` | How long a dropped encoder may reconnect before a stream ends (default 120) | ❌ |
-| `LIVESTREAM_MAX_RUNTIME_SECONDS` | Maximum stream length (default 14400 = 4 h) | ❌ |
+| `LIVESTREAM_MAX_RUNTIME_SECONDS` | Maximum stream length (default 10800 = 3 h; Cloudinary's limit for recorded streams, larger values are capped) | ❌ |
 | `PAYSTACK_SECRET_KEY` / `PAYSTACK_PUBLIC_KEY` | Paystack keys (test keys start `sk_test_` / `pk_test_`) | ✅ for payments |
 | `PAYSTACK_CALLBACK_URL` | Frontend page Paystack returns viewers to after paying | ✅ for payments |
 | `MODERATION_BANNED_TERMS` | Comma-separated words/phrases flagged in comments/videos and refused in chat | ❌ |

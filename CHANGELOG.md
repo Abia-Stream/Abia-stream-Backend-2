@@ -6,9 +6,9 @@ What changed in the backend, newest first. Endpoint details live in
 
 ---
 
-## 2026-10-27: Role on your own profile
+## 2026-10-28: Fix: going live failed for everyone
 
-- `GET /profile/me/` (and the `PATCH` response) now include `role` (`viewer` | `creator` | `moderator` | `admin`), read fresh on each call so a promotion shows up without logging in again. Public profiles don't include it.
+- Creating a stream always answered "Live streaming is temporarily unavailable". The backend asked Cloudinary for a 4-hour maximum, and Cloudinary refuses more than 3 hours for streams that are recorded. The default is now 3 hours, and the request is capped at Cloudinary's limit even if `LIVESTREAM_MAX_RUNTIME_SECONDS` is set higher.
 
 ---
 

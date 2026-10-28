@@ -50,12 +50,18 @@ def _call(method, path='', **kwargs):
     return body.get('data', body)
 
 
+# Cloudinary refuses longer streams when they have an archive (recording)
+# output, which it adds by default: "requested max runtime ... for live stream
+# with archive output is too large, the limit is 10800 seconds" (seen 2026-10-28).
+MAX_RUNTIME_WITH_ARCHIVE_SEC = 3 * 3600
+
+
 def create_stream(name, idle_timeout_sec, max_runtime_sec):
     return _call('POST', json={
         'name': name,
         'input': {'type': 'rtmp'},
         'idle_timeout_sec': idle_timeout_sec,
-        'max_runtime_sec': max_runtime_sec,
+        'max_runtime_sec': min(max_runtime_sec, MAX_RUNTIME_WITH_ARCHIVE_SEC),
     })
 
 

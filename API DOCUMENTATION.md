@@ -2383,7 +2383,7 @@ scheduled ──(encoder connects)──▶ live ──(encoder stops / "end")�
     └──(cancel)──▶ cancelled                      (recording → video)
 ```
 
-There is no "start" button: the stream goes **live automatically** when the creator's encoder connects. If the encoder drops, the stream stays live for 2 minutes so it can reconnect; after that it ends. Maximum length 4 hours.
+There is no "start" button: the stream goes **live automatically** when the creator's encoder connects. If the encoder drops, the stream stays live for 2 minutes so it can reconnect; after that it ends. Maximum length 3 hours (Cloudinary's limit).
 
 ### Create a stream
 ```

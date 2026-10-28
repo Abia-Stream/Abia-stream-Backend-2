@@ -506,3 +506,19 @@ class RecordingWithoutArchiveTests(LiveTestCase):
         self.assertNotIn(cloud_id, self.cloud.streams)
         self.assertIsNone(stream.recording_video_id)
         make_video(self.creator)  # unrelated videos unaffected
+
+
+class CloudinaryRequestTests(TestCase):
+    """The real request builder (the other tests use a fake Cloudinary)."""
+
+    def test_max_runtime_capped_at_cloudinary_limit(self):
+        from unittest import mock as _mock
+        ok = _mock.Mock(status_code=200, ok=True, json=lambda: {'data': {'id': 'x', 'outputs': []}})
+        with _mock.patch.object(cloudinary_live.requests, 'request', return_value=ok) as request:
+            cloudinary_live.create_stream('abiastream-test', idle_timeout_sec=120, max_runtime_sec=4 * 3600)
+        self.assertEqual(request.call_args.kwargs['json']['max_runtime_sec'], 3 * 3600)
+
+    def test_default_setting_within_limit(self):
+        from django.conf import settings
+        self.assertLessEqual(settings.LIVESTREAM_MAX_RUNTIME_SECONDS,
+                             cloudinary_live.MAX_RUNTIME_WITH_ARCHIVE_SEC)
