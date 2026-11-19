@@ -37,6 +37,21 @@ class NotificationListView(APIView):
         return paginator.get_paginated_response(serializer.data)
 
 
+class ArchivedNotificationListView(APIView):
+    """GET /api/v1/notifications/archived/"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        queryset = Notification.objects.filter(
+            user=request.user,
+            is_archived=True,
+        )
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(queryset, request)
+        serializer = NotificationSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+
 class UnreadCountView(APIView):
     """GET /api/v1/notifications/unread-count/"""
     permission_classes = [IsAuthenticated]
@@ -86,6 +101,19 @@ class ArchiveNotificationView(APIView):
         notification.is_archived = True
         notification.save(update_fields=['is_archived'])
         return Response({'detail': 'Notification archived.'})
+
+
+class UnarchiveNotificationView(APIView):
+    """PATCH /api/v1/notifications/<notification_id>/unarchive/"""
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, notification_id):
+        notification = get_object_or_404(
+            Notification, id=notification_id, user=request.user
+        )
+        notification.is_archived = False
+        notification.save(update_fields=['is_archived'])
+        return Response({'detail': 'Notification unarchived.'})
 
 
 class DeleteNotificationView(APIView):

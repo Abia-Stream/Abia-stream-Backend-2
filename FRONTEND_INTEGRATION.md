@@ -96,7 +96,13 @@ built from these views, and production currently has none.
 ```
 GET /videos/search/?q=<text>&page=1
 ```
-Paginated. `400` if `q` is empty — don't call it with an empty box.
+Paginated. Search matches word prefixes once the query contains at least three letters or numbers (for example, `?q=nol` can match “Nollywood”). Debounce requests as the user types; `400` if `q` is empty or shorter than three searchable characters.
+
+After password signup, verify the email with `POST /auth/verify-email/`. A successful verification now returns `access`, `refresh`, and `user` fields like login, so the client can establish the session and navigate into the app without asking the user to sign in again.
+
+Archived notifications are available from `GET /notifications/archived/`. Restore one with `PATCH /notifications/<id>/unarchive/`.
+
+Creators can list archived videos with `GET /videos/me/?status=archived` and restore one with `POST /videos/<id>/unarchive/`. The endpoint returns the video with `status: published`.
 
 ---
 

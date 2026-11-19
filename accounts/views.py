@@ -76,7 +76,28 @@ class VerifyEmailView(APIView):
         user.status = User.Status.ACTIVE 
         user.save()
 
-        return Response({'detail': 'Email verified successfully.'}, status=status.HTTP_200_OK)
+        tokens = get_tokens_for_user(user)
+        try:
+            from profiles.models import Profile
+            profile = Profile.objects.get(user=user)
+            full_name = profile.full_name
+            avatar_url = profile.avatar_url
+        except Profile.DoesNotExist:
+            full_name = None
+            avatar_url = None
+
+        return Response({
+            'detail': 'Email verified successfully.',
+            'access': tokens['access'],
+            'refresh': tokens['refresh'],
+            'user': {
+                'id': str(user.id),
+                'email': user.email,
+                'role': user.role,
+                'full_name': full_name,
+                'avatar_url': avatar_url,
+            },
+        }, status=status.HTTP_200_OK)
 
 
 class ResendOTPView(APIView):

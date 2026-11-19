@@ -2,7 +2,7 @@ from django.urls import path
 from videos.views import (
     VideoUploadView, SignedUploadParamsView, VideoFromCloudinaryView,
     VideoListView, MyVideosView, VideoDetailView,
-    PublishVideoView, ArchiveVideoView,
+    PublishVideoView, ArchiveVideoView, UnarchiveVideoView,
     CategoryListView, TagListView,
 )
 from videos.views import VideoSearchView, TrendingVideosView
@@ -28,6 +28,7 @@ urlpatterns = [
     # Status actions
     path('videos/<uuid:video_id>/publish/', PublishVideoView.as_view()), # publish video
     path('videos/<uuid:video_id>/archive/', ArchiveVideoView.as_view()), # archive video
+    path('videos/<uuid:video_id>/unarchive/', UnarchiveVideoView.as_view()), # restore archived video
 
     # Categories & Tags
     path('categories/', CategoryListView.as_view()), # Fetch all categories

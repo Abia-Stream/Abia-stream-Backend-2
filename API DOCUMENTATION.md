@@ -142,7 +142,7 @@ POST /auth/register/
 |--------|--------|
 | `400` | Email already exists or validation failed |
 
-> After registration, status is `pending_verification`. Email must be verified before logging in.
+> After registration, status is `pending_verification`. The user must verify their email before the API issues authentication tokens.
 
 ---
 
@@ -255,9 +255,20 @@ POST /auth/verify-email/
 **Success Response** `200 OK`
 ```json
 {
-  "detail": "Email verified successfully."
+  "detail": "Email verified successfully.",
+  "access": "******",
+  "refresh": "******",
+  "user": {
+    "id": "2483bf15-de2c-4d7f-b31e-5eb9ab780bed",
+    "email": "user@example.com",
+    "role": "viewer",
+    "full_name": "John Doe",
+    "avatar_url": null
+  }
 }
 ```
+
+On successful verification the user is activated and receives the same token and user fields as a successful login. The frontend can save the tokens and continue to the authenticated app.
 
 **Error Responses**
 
@@ -895,6 +906,31 @@ Authorization: Bearer <access_token>
 
 ---
 
+### Unarchive Video
+
+Restore an archived video to published status. Only the video's owner can unarchive it.
+
+**Endpoint**
+```
+POST /videos/<video_id>/unarchive/
+```
+
+**Headers**
+```
+Authorization: ******
+```
+
+**Success Response** `200 OK` — returns the updated video object with `status: published`.
+
+**Error Responses**
+
+| Status | Detail |
+|--------|--------|
+| `400` | Only archived videos can be unarchived |
+| `404` | Video not found or does not belong to the authenticated user |
+
+---
+
 ## Categories
 
 ### List Categories
@@ -1048,8 +1084,8 @@ Validation errors:
 ```
 Auth:
 1. POST /auth/register/              → OTP sent, profile auto-created
-2. POST /auth/verify-email/          → status → active
-3. POST /auth/login/                 → access + refresh tokens
+2. POST /auth/verify-email/          → status → active, access + refresh tokens
+3. POST /auth/login/                 → access + refresh tokens (for later sessions)
 4. POST /auth/token/refresh/         → new access token
 5. POST /auth/logout/                → blacklist refresh token
 
@@ -1069,6 +1105,7 @@ Video Upload (Client-side):
 Video Publishing:
 1. POST /videos/<id>/publish/        → status → published
 2. POST /videos/<id>/archive/        → status → archived
+3. POST /videos/<id>/unarchive/      → status → published
 
 Interactions:
 POST /interactions/                  → like/unlike, save/unsave, favourite, dislike, report
@@ -2042,6 +2079,24 @@ Authorization: Bearer <access_token>
 
 ---
 
+### Archived Notifications
+
+List the authenticated user's archived notifications:
+
+```
+GET /api/v1/notifications/archived/
+```
+
+Restore an archived notification:
+
+```
+PATCH /api/v1/notifications/<notification_id>/unarchive/
+```
+
+The restore operation returns `{"detail": "Notification unarchived."}`. Notifications remain scoped to their owner.
+
+---
+
 ### Mark All as Read
 
 Marks all unread notifications as read.
@@ -2150,11 +2205,13 @@ Authorization: Bearer <access_token>
 
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| `GET` | `/api/v1/notifications/` | List notifications | 🔒 |
+| `GET` | `/api/v1/notifications/` | List active notifications | 🔒 |
+| `GET` | `/api/v1/notifications/archived/` | List archived notifications | 🔒 |
 | `GET` | `/api/v1/notifications/unread-count/` | Unread count | 🔒 |
 | `PATCH` | `/api/v1/notifications/<id>/read/` | Mark as read | 🔒 |
 | `PATCH` | `/api/v1/notifications/read-all/` | Mark all as read | 🔒 |
 | `PATCH` | `/api/v1/notifications/<id>/archive/` | Archive notification | 🔒 |
+| `PATCH` | `/api/v1/notifications/<id>/unarchive/` | Restore archived notification | 🔒 |
 | `DELETE` | `/api/v1/notifications/<id>/` | Delete notification | 🔒 |
 
 ---
@@ -2193,7 +2250,7 @@ If the frontend does not send `type` (older clients), the upload still works; th
 ```
 GET /videos/search/?q=<text>
 ```
-Full-text search over title (weighted higher) and description of published public videos. Relevance first, view count breaks ties. Paginated. `400` if `q` is missing.
+Full-text prefix search over title (weighted higher) and description of published public videos. Word prefixes match once at least three letters or numbers are provided (for example, `?q=nol` can match “Nollywood”). Relevance first, view count breaks ties. Paginated. `400` if `q` is missing or shorter than three searchable characters.
 
 ### Trending
 ```

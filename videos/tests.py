@@ -33,6 +33,33 @@ class VideoListTests(TestCase):
 class VideoWriteTests(TestCase):
     """Regression: search_vector is a generated column and must never be written."""
 
+    def test_unarchive_restores_owners_video_to_published(self):
+        user = make_user()
+        video = make_video(user, status=Video.Status.ARCHIVED)
+
+        response = client_for(user).post(f'/api/v1/videos/{video.id}/unarchive/')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['status'], Video.Status.PUBLISHED)
+        video.refresh_from_db()
+        self.assertEqual(video.status, Video.Status.PUBLISHED)
+
+    def test_unarchive_rejects_non_archived_video(self):
+        user = make_user()
+        video = make_video(user)
+
+        response = client_for(user).post(f'/api/v1/videos/{video.id}/unarchive/')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['detail'], 'Only archived videos can be unarchived.')
+
+    def test_unarchive_is_owner_only(self):
+        video = make_video(make_user(), status=Video.Status.ARCHIVED)
+
+        response = client_for(make_user()).post(f'/api/v1/videos/{video.id}/unarchive/')
+
+        self.assertEqual(response.status_code, 404)
+
     def test_save_draft_and_publish(self):
         user = make_user()
         client = client_for(user)
@@ -78,9 +105,31 @@ class SearchTests(TestCase):
         self.assertEqual(event.payload['query'], 'nollywood')
         self.assertEqual(event.payload['result_count'], 1)
 
+    def test_matches_title_prefix_from_three_characters(self):
+        creator = make_user()
+        hit = make_video(creator, title='Nollywood comedy special')
+
+        response = client_for().get('/api/v1/videos/search/', {'q': 'nol'})
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual([v['id'] for v in response.json()['results']], [str(hit.id)])
+
     def test_requires_query(self):
         response = client_for().get('/api/v1/videos/search/')
         self.assertEqual(response.status_code, 400)
+
+    def test_requires_at_least_three_search_characters(self):
+        response = client_for().get('/api/v1/videos/search/', {'q': 'no'})
+        self.assertEqual(response.status_code, 400)
+
+
+class DraftVisibilityTests(TestCase):
+
+    def test_new_draft_defaults_to_public_visibility(self):
+        response = client_for(make_user()).post(
+            '/api/v1/videos/draft/', {'title': 'A new draft'}, format='json')
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()['visibility'], Video.Visibility.PUBLIC)
 
 
 class TrendingTests(TestCase):

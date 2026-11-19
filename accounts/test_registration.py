@@ -27,6 +27,9 @@ class PasswordSignupTests(TestCase):
         verified = client_for().post('/api/v1/auth/verify-email/', {'email': email, 'otp': otp},
                                      format='json')
         self.assertEqual(verified.status_code, 200, verified.content)
+        self.assertIn('access', verified.json())
+        self.assertIn('refresh', verified.json())
+        self.assertEqual(verified.json()['user']['email'], email)
 
         login = client_for().post('/api/v1/auth/login/', {'email': email, 'password': 'Str0ngPass!word'},
                                   format='json')

@@ -1,4 +1,5 @@
 import logging
+import re
 import uuid
 from django.conf import settings
 from rest_framework.exceptions import ValidationError
@@ -526,6 +527,29 @@ class ArchiveVideoView(APIView):
         return Response(VideoSerializer(video, context={'request': request}).data)
 
 
+class UnarchiveVideoView(APIView):
+    """
+    Restore an archived video to published status.
+
+    POST /api/v1/videos/<video_id>/unarchive/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, video_id):
+        video = get_object_or_404(Video, id=video_id, creator=request.user)
+
+        if video.status != Video.Status.ARCHIVED:
+            return Response(
+                {'detail': 'Only archived videos can be unarchived.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        video.status = Video.Status.PUBLISHED
+        video.save(update_fields=['status', 'updated_at'])
+
+        return Response(VideoSerializer(video, context={'request': request}).data)
+
+
 # ── Categories & Tags ─────────────────────────────────────────────────────────
 
 class CategoryListView(APIView):
@@ -578,7 +602,7 @@ class SaveDraftView(APIView):
             title=title,
             description=request.data.get('description', ''),
             category_id=request.data.get('category'),
-            visibility=request.data.get('visibility', 'private'),
+            visibility=request.data.get('visibility', Video.Visibility.PUBLIC),
             is_monetized=request.data.get('is_monetized', False),
             status=Video.Status.DRAFT,
             # Cloudinary fields empty for now
@@ -886,7 +910,18 @@ class VideoSearchView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        search_query = SearchQuery(query_text, config='english')
+        terms = [term for term in re.findall(r'[^\W_]+', query_text) if len(term) >= 3]
+        if not terms:
+            return Response(
+                {'detail': 'Enter at least 3 letters or numbers to search.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        search_query = SearchQuery(
+            ' & '.join(f'{term}:*' for term in terms),
+            config='english',
+            search_type='raw',
+        )
 
         queryset = (
             Video.objects.filter(
